@@ -1,0 +1,6 @@
+{
+  "name": "Lofi Yeti Runner",
+  "description": "A playable 3D endless runner starring Lofi Yeti across four distinct worlds: Neon Street, Sui Harbor, Gallery Night, and Frost Peak.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
