@@ -5,6 +5,7 @@ import {
   DIFFICULTIES,
   DOUBLE_JUMP_VELOCITY,
   GRAVITY,
+  HUNTER_OUTRUN_DISTANCE,
   INVULNERABLE_DURATION,
   JUMP_VELOCITY,
   LANE_X,
@@ -14,6 +15,8 @@ import {
   SCENE_SWITCH_DISTANCE,
   SLASH_DURATION,
   SLIDE_DURATION,
+  SLIDE_ZONE_END_RATIO,
+  SLIDE_ZONE_START_RATIO,
   SPIN_DURATION,
   STAR_DURATION,
   STAR_FLY_HEIGHT,
@@ -24,7 +27,14 @@ import {
 import { EntityPoolManager } from './pools';
 import { WorldManager } from './scenes';
 import { SpatialWorldAudioManager } from './spatialAudio';
-import type { CharacterId, DifficultyId, GameScreen, HudSnapshot, SceneId } from './types';
+import type {
+  ActiveRunLoadout,
+  CharacterId,
+  DifficultyId,
+  GameScreen,
+  HudSnapshot,
+  SceneId,
+} from './types';
 import { VillainChaserController } from './villainChaser';
 import { WorldPortalController } from './worldPortal';
 import { YetiController, type YetiAnimState } from './yetiRig';
@@ -126,14 +136,23 @@ export class RunnerEngine {
   private flyLoopTimer = 0;
   private flySwoopTimer = 0;
 
-  // Power-ups
+  // Power-ups & Store Loadout
   private swordTimer = 0;
   private activeSwordDuration = SWORD_DURATION;
   private starTimer = 0;
+  private activeStarDuration = STAR_DURATION;
+  private doubleCoinsActive = false;
+  private loadout: ActiveRunLoadout = {
+    upgrades: { magnet: 0, sword: 0, star: 0, shield: 0, yield: 0 },
+    activeBoosters: [],
+  };
 
-  // Scene progression & 3D World Portal state
+  // Scene progression, Hunter outrun & World Slide / Space Float state
   private sceneIndex = 0;
   private nextPortalDistance = SCENE_SWITCH_DISTANCE;
+  private cleanRunDistance = 0;
+  private hunterActive = true;
+  private worldSlideActive = false;
   private fadeOpacity = 0;
   private portalWarpColor = '#e0f2fe';
   private portalDestination: string | null = null;
@@ -225,15 +244,20 @@ export class RunnerEngine {
     this.world = new WorldManager(this.scene, this.hemiLight, this.keyLight, this.rimLight, maxAniso);
     this.portal = new WorldPortalController(maxAniso);
     this.scene.add(this.portal.root);
-    this.yeti = new YetiController(initialCharacter, (src) => {
-      this.yetiSource = src;
-      this.emitHud();
-    });
+    this.yeti = new YetiController(
+      initialCharacter,
+      (src) => {
+        this.yetiSource = src;
+        this.emitHud();
+      },
+      maxAniso,
+    );
     this.scene.add(this.yeti.root);
     this.scene.add(this.yeti.swordTrailMesh);
     this.villain = new VillainChaserController();
     this.scene.add(this.villain.root);
     this.pools = new EntityPoolManager(this.scene, maxAniso);
+    this.pools.setDifficulty(initialDifficulty);
 
     // Open showcase in the equipped Yeti's dedicated home world
     const initialHome = getCharacterById(initialCharacter).homeWorldId;
@@ -265,7 +289,13 @@ export class RunnerEngine {
 
   public setScreen(screen: GameScreen): void {
     this.screen = screen;
-    if (screen === 'menu' || screen === 'character' || screen === 'settings') {
+    if (
+      screen === 'menu' ||
+      screen === 'character' ||
+      screen === 'store' ||
+      screen === 'web3' ||
+      screen === 'settings'
+    ) {
       this.playerX = 0;
       this.lane = 1;
       this.playerY = 0;
@@ -276,9 +306,21 @@ export class RunnerEngine {
       this.portalDestination = null;
       this.fadeOpacity = 0;
       this.hitStopTimer = 0;
+      this.cleanRunDistance = 0;
+      this.hunterActive = true;
+      this.worldSlideActive = false;
+      this.world.setSlideMode(false);
+      this.pools.setSlideMode(false);
     }
     this.spatialAudio.setActivity(screen === 'playing', 0, this.playerX);
     this.emitHud();
+  }
+
+  public setLoadout(loadout: ActiveRunLoadout): void {
+    this.loadout = {
+      upgrades: { ...loadout.upgrades },
+      activeBoosters: [...loadout.activeBoosters],
+    };
   }
 
   public setCharacter(charId: CharacterId, playEmote = false): void {
@@ -289,6 +331,7 @@ export class RunnerEngine {
 
   public setDifficulty(diff: DifficultyId): void {
     this.difficultyId = diff;
+    this.pools.setDifficulty(diff);
   }
 
   public setSfxEnabled(enabled: boolean): void {
@@ -314,21 +357,29 @@ export class RunnerEngine {
   public startRun(): void {
     const diff = DIFFICULTIES[this.difficultyId];
     const charCfg = getCharacterById(this.characterId);
+    const upg = this.loadout.upgrades;
+    const boosters = new Set(this.loadout.activeBoosters);
 
-    this.score = 0;
-    this.distance = 0;
+    const hasHeadstart = boosters.has('headstart');
+    const hasStarterSword = boosters.has('starter_sword');
+    const hasExtraShield = boosters.has('extra_shield');
+    this.doubleCoinsActive = boosters.has('double_coins');
+
+    this.score = hasHeadstart ? Math.round(350 * 1.5 * diff.scoreMultiplier) : 0;
+    this.distance = hasHeadstart ? 350 : 0;
     this.runCoins = 0;
     this.lives = diff.lives;
     this.maxLives = diff.lives;
-    this.shields = charCfg.perks.startShields;
+    this.shields =
+      charCfg.perks.startShields + (upg.shield >= 3 ? 1 : 0) + (hasExtraShield ? 1 : 0);
     this.speed = diff.startSpeed;
 
     this.lane = 1;
     this.playerX = 0;
     this.prevPlayerX = 0;
-    this.playerY = 0;
+    this.playerY = hasHeadstart ? STAR_FLY_HEIGHT * 0.65 : 0;
     this.velocityY = 0;
-    this.isGrounded = true;
+    this.isGrounded = !hasHeadstart;
     this.jumpsUsed = 0;
 
     this.slideTimer = 0;
@@ -337,22 +388,30 @@ export class RunnerEngine {
     this.slashTimer = 0;
     this.slashComboIndex = 0;
     this.stumbleTimer = 0;
-    this.invulnTimer = 0;
+    this.invulnTimer = hasHeadstart ? 1.5 : 0;
     this.flyBarrelTimer = 0;
     this.flyLoopTimer = 0;
     this.flySwoopTimer = 0;
     this.hitStopTimer = 0;
 
-    this.swordTimer = 0;
-    this.activeSwordDuration = SWORD_DURATION + charCfg.perks.swordDurationBonus;
-    this.starTimer = 0;
+    this.activeSwordDuration =
+      SWORD_DURATION + charCfg.perks.swordDurationBonus + upg.sword * 1.2;
+    this.activeStarDuration = STAR_DURATION + upg.star * 1.0;
+    this.swordTimer = hasStarterSword ? this.activeSwordDuration : 0;
+    this.starTimer = hasHeadstart ? Math.max(4.0, 4.0 + upg.star * 0.4) : 0;
+    if (this.starTimer > this.activeStarDuration) {
+      this.activeStarDuration = this.starTimer;
+    }
     this.cameraShake = 0;
-    this.cameraFovKick = 0;
+    this.cameraFovKick = hasHeadstart ? 6.5 : 0;
     this.trailAccum = 0;
 
     const homeIdx = Math.max(0, SCENE_ORDER.indexOf(charCfg.homeWorldId));
     this.sceneIndex = homeIdx;
     this.nextPortalDistance = SCENE_SWITCH_DISTANCE;
+    this.cleanRunDistance = hasHeadstart ? HUNTER_OUTRUN_DISTANCE : 0;
+    this.hunterActive = !hasHeadstart;
+    this.worldSlideActive = false;
     const startSceneId = SCENE_ORDER[homeIdx];
 
     this.fadeOpacity = 0;
@@ -361,17 +420,36 @@ export class RunnerEngine {
     this.portal.hide();
     this.sceneToast = SCENE_NAMES[startSceneId];
     this.sceneToastTimer = 2.0;
-    this.stuntBanner = `${charCfg.name} · ${charCfg.perkName}`;
-    this.stuntBannerTimer = 1.8;
+
+    const activeBoosterLabels: string[] = [];
+    if (hasHeadstart) activeBoosterLabels.push('Headstart 350m');
+    if (hasStarterSword) activeBoosterLabels.push('Ignited Blade');
+    if (this.doubleCoinsActive) activeBoosterLabels.push('2x SUI');
+    if (hasExtraShield) activeBoosterLabels.push('+1 Shield');
+    this.stuntBanner =
+      activeBoosterLabels.length > 0
+        ? activeBoosterLabels.join(' · ')
+        : `${charCfg.name} · ${charCfg.perkName}`;
+    this.stuntBannerTimer = 2.0;
 
     this.world.activateScene(startSceneId);
+    this.world.setSlideMode(false);
+    this.pools.setDifficulty(this.difficultyId);
     this.pools.reset();
     this.pools.setScene(startSceneId);
+    this.pools.setSlideMode(false);
+    if (hasHeadstart) {
+      this.pools.clearObstaclesInRange(-95, 12);
+    }
     this.yeti.clearSwordTrail();
-    this.villain.startChase();
+    if (this.hunterActive) {
+      this.villain.startChase();
+    } else {
+      this.villain.hide();
+    }
 
     this.screen = 'playing';
-    this.audio.play('uiClick');
+    this.audio.play(hasHeadstart ? 'star' : 'uiClick');
     this.spatialAudio.unlock();
     this.spatialAudio.setWorld(startSceneId);
     this.spatialAudio.setActivity(true, 0, 0);
@@ -440,6 +518,18 @@ export class RunnerEngine {
       return;
     }
 
+    // While Floating in Cyborg Space -> playful Zero-G Cosmic Backflip!
+    if (this.worldSlideActive && SCENE_ORDER[this.sceneIndex] === 'cyber_foundry') {
+      if (this.flipTimer <= 0) {
+        this.flipTimer = this.flipDuration;
+        this.yeti.triggerJumpLaunch(true);
+        const pts = Math.round(45 * charCfg.perks.stuntBonusMult);
+        this.addBonus(pts, `Zero-G Flip +${pts}`);
+        this.audio.play('flip');
+      }
+      return;
+    }
+
     const jumpMult = charCfg.perks.jumpMult;
 
     if (this.isGrounded) {
@@ -449,7 +539,7 @@ export class RunnerEngine {
       this.slideTimer = 0;
       this.yeti.triggerJumpLaunch(false);
       this.audio.play('jump');
-      this.pools.spawnBurst(this.playerX, 0.2, 0.2, charCfg.trailColor, 6);
+      this.pools.spawnBurst(this.playerX, this.playerY + 0.2, 0.2, charCfg.trailColor, 6);
     } else if (this.jumpsUsed === 1) {
       this.jumpsUsed = 2;
       this.velocityY = DOUBLE_JUMP_VELOCITY * jumpMult;
@@ -479,6 +569,17 @@ export class RunnerEngine {
         this.audio.play('spin');
         this.cameraFovKick = 5.0;
         this.pools.spawnBurst(this.playerX, this.playerY + 0.5, 0, 0x38bdf8, 12);
+      }
+      return;
+    }
+
+    // While Floating in Cyborg Space -> Zero-G Barrel Spin!
+    if (this.worldSlideActive && SCENE_ORDER[this.sceneIndex] === 'cyber_foundry') {
+      if (this.spinTimer <= 0) {
+        this.spinTimer = SPIN_DURATION;
+        this.audio.play('spin');
+        const pts = Math.round(35 * charCfg.perks.stuntBonusMult);
+        this.addBonus(pts, `Zero-G Spin +${pts}`);
       }
       return;
     }
@@ -533,7 +634,7 @@ export class RunnerEngine {
     this.audio.play('sword');
 
     if (this.swordTimer > 0) {
-      const reachZ = -12.5 - charCfg.perks.swordReachBonus;
+      const reachZ = -12.5 - charCfg.perks.swordReachBonus - this.loadout.upgrades.sword * 0.6;
       let slicedAny = false;
       for (const obs of this.pools.obstacles) {
         if (!obs.active || obs.sliced) continue;
@@ -560,7 +661,8 @@ export class RunnerEngine {
   }
 
   private addBonus(points: number, label: string): void {
-    this.score += Math.round(points * DIFFICULTIES[this.difficultyId].scoreMultiplier);
+    const starStuntMult = this.starTimer > 0 ? 1 + this.loadout.upgrades.star * 0.1 : 1;
+    this.score += Math.round(points * starStuntMult * DIFFICULTIES[this.difficultyId].scoreMultiplier);
     this.stuntBanner = label;
     this.stuntBannerTimer = 1.15;
     this.emitHud();
@@ -702,7 +804,13 @@ export class RunnerEngine {
 
     if (this.screen === 'playing') {
       this.updatePlaying(dt);
-    } else if (this.screen === 'menu' || this.screen === 'character' || this.screen === 'settings') {
+    } else if (
+      this.screen === 'menu' ||
+      this.screen === 'character' ||
+      this.screen === 'store' ||
+      this.screen === 'web3' ||
+      this.screen === 'settings'
+    ) {
       this.updateShowcase(dt);
     } else if (this.screen === 'gameover') {
       this.updateGameOverIdle(dt);
@@ -714,19 +822,33 @@ export class RunnerEngine {
   }
 
   private updateShowcase(dt: number): void {
-    this.world.update(dt, 4.5, this.elapsed);
+    this.world.update(dt, 4.0, this.elapsed);
 
     const isCharScreen = this.screen === 'character';
     const aspect = this.camera.aspect;
 
-    const camX = isCharScreen ? Math.sin(this.elapsed * 0.5) * 0.95 : Math.sin(this.elapsed * 0.35) * 0.9;
-    const camY = isCharScreen ? 1.85 : 2.35;
-    const camZ = isCharScreen ? (aspect < 0.85 ? 5.1 : 4.1) : (aspect < 0.85 ? 6.8 : 5.6);
+    // Smooth, living showcase camera orbit with gentle breathing elevation
+    const camX = isCharScreen
+      ? Math.sin(this.elapsed * 0.58) * 1.15
+      : Math.sin(this.elapsed * 0.42) * 1.05;
+    const camY =
+      (isCharScreen ? 1.82 : 2.15) + Math.sin(this.elapsed * 1.15) * 0.08;
+    const camZ = isCharScreen
+      ? aspect < 0.85
+        ? 4.95
+        : 3.95
+      : aspect < 0.85
+        ? 6.45
+        : 5.25;
 
     _camTargetPos.set(camX, camY, camZ);
-    this.camera.position.lerp(_camTargetPos, 1 - Math.exp(-5 * dt));
+    this.camera.position.lerp(_camTargetPos, 1 - Math.exp(-5.5 * dt));
 
-    _camLookAt.set(0, isCharScreen ? 1.25 : 1.55, -2);
+    _camLookAt.set(
+      Math.sin(this.elapsed * 0.42) * 0.12,
+      isCharScreen ? 1.24 : 1.42,
+      -1.2,
+    );
     this.camera.lookAt(_camLookAt);
 
     const charCfg = getCharacterById(this.characterId);
@@ -767,6 +889,7 @@ export class RunnerEngine {
       isPlayerSliding: false,
       isPlayerFlying: false,
       speedRatio: 0,
+      isChasing: true,
       isGameOver: true,
       isMenuPreview: false,
     });
@@ -791,18 +914,69 @@ export class RunnerEngine {
     const charCfg = getCharacterById(this.characterId);
 
     this.speed = Math.min(diff.maxSpeed, diff.startSpeed + this.distance * diff.speedRampPerUnit);
-    const activeSpeed = this.starTimer > 0 ? this.speed * 1.24 : this.speed;
+    const slideSpeedMult = this.worldSlideActive ? 1.15 : 1.0;
+    const activeSpeed = this.speed * slideSpeedMult * (this.starTimer > 0 ? 1.24 : 1.0);
     const stepDist = activeSpeed * dt;
     this.distance += stepDist;
     this.score += stepDist * 1.5 * diff.scoreMultiplier;
 
-    // Physical 3D World Portal Gate spawns approaching every 1,500m biome boundary!
-    if (!this.portal.isActive() && this.distance >= this.nextPortalDistance - 144) {
+    // Hunter drops off after running cleanly for HUNTER_OUTRUN_DISTANCE (returns only if player hits an obstacle!)
+    this.cleanRunDistance += stepDist;
+    if (this.hunterActive && this.cleanRunDistance >= HUNTER_OUTRUN_DISTANCE) {
+      this.hunterActive = false;
+      this.stuntBanner = 'Hunter Outrun!';
+      this.stuntBannerTimer = 1.5;
+    }
+
+    // Mid-world transformation: Road turns into world-specific Slide Chute or Cyber Zero-G Space Float!
+    const currentSceneId = SCENE_ORDER[this.sceneIndex];
+    const worldStartDist = this.nextPortalDistance - SCENE_SWITCH_DISTANCE;
+    const worldRatio = (this.distance - worldStartDist) / SCENE_SWITCH_DISTANCE;
+    const shouldSlide =
+      worldRatio >= SLIDE_ZONE_START_RATIO &&
+      worldRatio < SLIDE_ZONE_END_RATIO &&
+      !this.portal.isActive();
+
+    if (shouldSlide !== this.worldSlideActive) {
+      this.worldSlideActive = shouldSlide;
+      this.world.setSlideMode(shouldSlide);
+      this.pools.setSlideMode(shouldSlide);
+      this.pools.clearObstaclesInRange(-52, 12);
+      this.cameraFovKick = Math.max(this.cameraFovKick, 6.5);
+      if (shouldSlide) {
+        const slideTitle =
+          currentSceneId === 'frost_sanctuary'
+            ? 'SNOW SLIDE!'
+            : currentSceneId === 'inferno_caldera'
+              ? 'MAGMA SLIDE!'
+              : currentSceneId === 'slime_catacombs'
+                ? 'SLIME SLIDE!'
+                : currentSceneId === 'cyber_foundry'
+                  ? 'FLOATING TO SPACE!'
+                  : 'BLACKHOLE SLIDE!';
+        this.sceneToast = slideTitle;
+        this.sceneToastTimer = 2.1;
+        this.stuntBanner =
+          currentSceneId === 'cyber_foundry'
+            ? 'Zero-G Space Drift · Dodge & Collect!'
+            : 'Carve the Chute · Speed Boost!';
+        this.stuntBannerTimer = 1.8;
+        this.audio.play('flyStunt');
+      } else {
+        this.invulnTimer = Math.max(this.invulnTimer, 0.85);
+        this.stuntBanner = 'Back on Track!';
+        this.stuntBannerTimer = 1.25;
+      }
+      this.emitHud();
+    }
+
+    // Physical 3D World Portal Gate spawns approaching every biome boundary
+    if (!this.portal.isActive() && this.distance >= this.nextPortalDistance - 155) {
       const nextIdx = (this.sceneIndex + 1) % SCENE_ORDER.length;
       const nextId = SCENE_ORDER[nextIdx];
-      this.portal.spawn(nextId, -148);
+      this.portal.spawn(nextId, -155);
       this.portalDestination = SCENE_NAMES[nextId];
-      this.pools.clearObstaclesInRange(-165, -108);
+      this.pools.clearObstaclesInRange(-170, -108);
       this.emitHud();
     }
 
@@ -811,8 +985,11 @@ export class RunnerEngine {
       const nextId = this.portal.getDestinationSceneId();
       this.sceneIndex = Math.max(0, SCENE_ORDER.indexOf(nextId));
       this.nextPortalDistance += SCENE_SWITCH_DISTANCE;
+      this.worldSlideActive = false;
       this.world.activateScene(nextId);
+      this.world.setSlideMode(false);
       this.pools.setScene(nextId);
+      this.pools.setSlideMode(false);
       this.pools.clearObstaclesInRange(-52, 8);
       this.spatialAudio.setWorld(nextId);
 
@@ -869,57 +1046,63 @@ export class RunnerEngine {
       this.cameraFovKick = THREE.MathUtils.damp(this.cameraFovKick, 0, 7, dt);
     }
 
-    // Smooth lateral lane damping
+    // Crisp, responsive lateral lane damping tuned for higher Yeti running speed
     this.prevPlayerX = this.playerX;
     const targetX = LANE_X[this.lane];
-    this.playerX = THREE.MathUtils.damp(this.playerX, targetX, 17, dt);
+    this.playerX = THREE.MathUtils.damp(this.playerX, targetX, 21, dt);
     const laneVelocity = (this.playerX - this.prevPlayerX) / Math.max(dt, 0.001);
 
-    // Vertical physics (Star flight vs gravity jump)
+    const activeSceneNow = SCENE_ORDER[this.sceneIndex];
+    const isCyberSpaceFloat = this.worldSlideActive && activeSceneNow === 'cyber_foundry';
+    const slideFloorY =
+      this.worldSlideActive && !isCyberSpaceFloat
+        ? Math.max(0, 5.56 - Math.sqrt(Math.max(1, 5.6 * 5.6 - this.playerX * this.playerX)))
+        : 0;
+
+    // Vertical physics (Star flight vs Cyber Zero-G Space Float vs gravity jump + curved slide chute)
     if (this.starTimer > 0) {
       this.playerY = THREE.MathUtils.damp(this.playerY, STAR_FLY_HEIGHT, 7, dt);
       this.velocityY = 0;
       this.isGrounded = false;
       this.slideTimer = 0;
+    } else if (isCyberSpaceFloat) {
+      const floatTarget = 2.25 + Math.sin(this.elapsed * 2.8) * 0.22;
+      this.playerY = THREE.MathUtils.damp(this.playerY, floatTarget, 6.5, dt);
+      this.velocityY = 0;
+      this.isGrounded = false;
+      this.slideTimer = 0;
     } else {
-      if (!this.isGrounded || this.playerY > 0) {
+      if (!this.isGrounded || this.playerY > slideFloorY + 0.02) {
         const effGravity = this.spinTimer > 0 ? GRAVITY * 0.8 : GRAVITY;
         this.velocityY -= effGravity * dt;
         this.playerY += this.velocityY * dt;
-        if (this.playerY <= 0) {
-          this.playerY = 0;
+        if (this.playerY <= slideFloorY) {
+          this.playerY = slideFloorY;
           this.velocityY = 0;
           if (!this.isGrounded) {
             this.audio.play('land');
-            this.pools.spawnBurst(this.playerX, 0.15, 0.15, charCfg.trailColor, 5);
+            this.pools.spawnBurst(this.playerX, slideFloorY + 0.15, 0.15, charCfg.trailColor, 5);
           }
           this.isGrounded = true;
           this.jumpsUsed = 0;
           this.flipTimer = 0;
           this.spinTimer = 0;
         }
+      } else {
+        this.playerY = slideFloorY;
       }
     }
 
     this.yeti.root.position.set(this.playerX, 0, 0);
+    // Keep track crystal clear — default continuous foot-trail particle emitter disabled!
+    void this.trailAccum;
 
-    // Subtle ground sprint trail sparks (disabled during Star Flight for crystal-clear aerial visibility)
-    if (this.starTimer <= 0) {
-      this.trailAccum += dt;
-      if (this.trailAccum >= 0.16) {
-        this.trailAccum = 0;
-        this.pools.spawnBurst(
-          this.playerX + (Math.random() - 0.5) * 0.5,
-          Math.max(0.2, this.playerY + 0.22),
-          0.55,
-          charCfg.trailColor,
-          2,
-        );
-      }
-    }
-
+    const nearSlideBoundary =
+      Math.abs(worldRatio - SLIDE_ZONE_START_RATIO) < 0.028 ||
+      Math.abs(worldRatio - SLIDE_ZONE_END_RATIO) < 0.028;
     const pauseSpawnsForPortal =
-      this.distance >= this.nextPortalDistance - 160 ||
+      nearSlideBoundary ||
+      this.distance >= this.nextPortalDistance - 165 ||
       (this.portal.isApproaching() && this.portal.getZ() < -6);
 
     this.world.update(dt, activeSpeed, this.elapsed, this.playerX);
@@ -939,8 +1122,10 @@ export class RunnerEngine {
     else if (this.stumbleTimer > 0) animState = 'hit';
     else if (this.slashTimer > 0) animState = 'slash';
     else if (this.flipTimer > 0) animState = 'flip';
+    else if (isCyberSpaceFloat) animState = 'spaceFloat';
     else if (!this.isGrounded) animState = 'jump';
     else if (this.slideTimer > 0) animState = 'slide';
+    else if (this.worldSlideActive) animState = 'worldSlide';
 
     const speedRatio = THREE.MathUtils.clamp(
       (activeSpeed - diff.startSpeed) / Math.max(1, diff.maxSpeed - diff.startSpeed),
@@ -982,20 +1167,21 @@ export class RunnerEngine {
       isMenuPreview: false,
     });
 
-    // Update pursuing 3D Villain Chaser right behind the Yeti
+    // Update pursuing 3D Villain Chaser (drops off behind camera once outrun; surges back on hit!)
     this.villain.update({
       dt,
       elapsed: this.elapsed,
       playerX: this.playerX,
       playerY: this.playerY,
       isPlayerSliding: this.slideTimer > 0,
-      isPlayerFlying: this.starTimer > 0,
+      isPlayerFlying: this.starTimer > 0 || isCyberSpaceFloat,
       speedRatio,
+      isChasing: this.hunterActive && !this.worldSlideActive,
       isGameOver: false,
       isMenuPreview: false,
     });
 
-    // Dynamic chase camera framing both the pursuing Villain behind and the colossal Big Lofi Titan ahead
+    // Dynamic chase camera framing the Yeti, slide chutes & towering horizon Titans
     const isPortrait = this.camera.aspect < 0.85;
     const baseCamZ = isPortrait ? 10.6 : 8.5;
     const baseCamY = isPortrait ? 5.25 : 4.55;
@@ -1005,7 +1191,7 @@ export class RunnerEngine {
     _camTargetPos.set(
       this.playerX * 0.62 + shakeX,
       baseCamY + this.playerY * 0.55 + shakeY,
-      baseCamZ + (this.starTimer > 0 ? 1.6 : 0),
+      baseCamZ + (this.starTimer > 0 || isCyberSpaceFloat ? 1.5 : 0),
     );
     this.camera.position.lerp(_camTargetPos, 1 - Math.exp(-9 * dt));
 
@@ -1036,15 +1222,18 @@ export class RunnerEngine {
     const playerCenterY = effectiveY + (this.slideTimer > 0 ? 0.55 : 1.05);
     const playerTopY = effectiveY + (this.slideTimer > 0 ? 1.1 : 2.1);
 
-    // 1. SUI Coins + Half-Cyborg Magnet Core pull (plus gentle Star flight pull)
-    const magnetRadius = Math.max(charCfg.perks.coinMagnetRadius, this.starTimer > 0 ? 4.4 : 0);
+    // 1. SUI Coins + Half-Cyborg / Store Magnet Core pull (plus gentle Star flight pull)
+    const upg = this.loadout.upgrades;
+    const baseMagnet = charCfg.perks.coinMagnetRadius + upg.magnet * 1.1;
+    const magnetRadius = Math.max(baseMagnet, this.starTimer > 0 ? 4.4 + upg.magnet * 0.5 : 0);
     const coinRadiusX = this.starTimer > 0 ? 2.6 : 1.25;
     const coinRadiusY = this.starTimer > 0 ? 2.6 : 1.45;
+    const coinGain = this.doubleCoinsActive ? 2 : 1;
 
     for (const coin of this.pools.coins) {
       if (!coin.active) continue;
 
-      if (magnetRadius > 0 && coin.z > -11 && coin.z < 2) {
+      if (magnetRadius > 0 && coin.z > -12.5 && coin.z < 2.2) {
         const dx = this.playerX - coin.x;
         const dy = playerCenterY - coin.y;
         const dz = -coin.z;
@@ -1064,8 +1253,8 @@ export class RunnerEngine {
       ) {
         coin.active = false;
         coin.mesh.visible = false;
-        this.runCoins++;
-        this.score += Math.round(15 * DIFFICULTIES[this.difficultyId].scoreMultiplier);
+        this.runCoins += coinGain;
+        this.score += Math.round(15 * coinGain * DIFFICULTIES[this.difficultyId].scoreMultiplier);
         this.audio.play('coin');
       }
     }
@@ -1078,7 +1267,8 @@ export class RunnerEngine {
         pu.active = false;
         pu.group.visible = false;
         if (pu.kind === 'sword') {
-          this.activeSwordDuration = SWORD_DURATION + charCfg.perks.swordDurationBonus;
+          this.activeSwordDuration =
+            SWORD_DURATION + charCfg.perks.swordDurationBonus + upg.sword * 1.2;
           this.swordTimer = this.activeSwordDuration;
           this.addBonus(
             100,
@@ -1087,7 +1277,8 @@ export class RunnerEngine {
           this.audio.play('sword');
           this.pools.spawnBurst(puX, 1.5, 0, charCfg.slashColor, 14);
         } else {
-          this.starTimer = STAR_DURATION;
+          this.activeStarDuration = STAR_DURATION + upg.star * 1.0;
+          this.starTimer = this.activeStarDuration;
           this.addBonus(120, 'Star Flight · Stunts Ready!');
           this.audio.play('star');
         }
@@ -1097,7 +1288,7 @@ export class RunnerEngine {
     // 3. Obstacles (Star flight grants complete obstacle immunity)
     if (this.starTimer > 0) return;
 
-    const autoCutRangeZ = -4.2 - charCfg.perks.swordReachBonus * 0.45;
+    const autoCutRangeZ = -4.2 - charCfg.perks.swordReachBonus * 0.45 - upg.sword * 0.35;
 
     for (const obs of this.pools.obstacles) {
       if (!obs.active || obs.sliced) continue;
@@ -1148,9 +1339,15 @@ export class RunnerEngine {
     const charCfg = getCharacterById(this.characterId);
     obs.sliced = true;
 
+    // Hitting an obstacle immediately brings the Hunter charging back into pursuit!
+    this.cleanRunDistance = 0;
+    this.hunterActive = true;
+
+    const extraRecovery = this.loadout.upgrades.shield * 0.25;
+
     if (this.shields > 0) {
       this.shields--;
-      this.invulnTimer = INVULNERABLE_DURATION + charCfg.perks.extraInvulnSeconds;
+      this.invulnTimer = INVULNERABLE_DURATION + charCfg.perks.extraInvulnSeconds + extraRecovery;
       this.cameraShake = 0.35;
       this.villain.triggerSurge(5.2);
       this.audio.play('spin');
@@ -1164,7 +1361,7 @@ export class RunnerEngine {
 
     this.lives--;
     this.stumbleTimer = STUMBLE_DURATION;
-    this.invulnTimer = INVULNERABLE_DURATION + charCfg.perks.extraInvulnSeconds;
+    this.invulnTimer = INVULNERABLE_DURATION + charCfg.perks.extraInvulnSeconds + extraRecovery;
     this.cameraShake = 0.55;
     this.pools.spawnBurst(this.playerX, this.playerY + 1.1, 0, 0xf43f5e, 16);
 
@@ -1173,11 +1370,16 @@ export class RunnerEngine {
       this.screen = 'gameover';
       this.spatialAudio.setActivity(false, 0, this.playerX);
       this.audio.play('gameOver');
+      const yieldMult = 1 + this.loadout.upgrades.yield * 0.15;
+      const finalCoins = Math.round(this.runCoins * yieldMult);
+      const finalScore = Math.floor(this.score * yieldMult);
+      this.runCoins = finalCoins;
+      this.score = finalScore;
       this.emitHud();
       this.callbacks.onGameOver({
-        score: Math.floor(this.score),
+        score: finalScore,
         distance: Math.floor(this.distance),
-        runCoins: this.runCoins,
+        runCoins: finalCoins,
       });
     } else {
       this.villain.triggerSurge(6.5);
@@ -1208,7 +1410,7 @@ export class RunnerEngine {
       swordRemaining: this.swordTimer,
       swordDuration: this.activeSwordDuration,
       starRemaining: this.starTimer,
-      starDuration: STAR_DURATION,
+      starDuration: this.activeStarDuration,
       stuntBanner: this.stuntBanner,
       sceneFadeOpacity: this.fadeOpacity,
       portalWarpColor: this.portalWarpColor,

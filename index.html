@@ -12,6 +12,43 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      (function () {
+        function isBrowserExtensionNoise(msg, stack, filename) {
+          var combined = String(msg || '') + '\n' + String(stack || '') + '\n' + String(filename || '');
+          return (
+            combined.indexOf('chrome-extension://') !== -1 ||
+            combined.indexOf('moz-extension://') !== -1 ||
+            combined.indexOf('safari-extension://') !== -1 ||
+            combined.indexOf('Failed to connect to MetaMask') !== -1
+          );
+        }
+        window.addEventListener(
+          'unhandledrejection',
+          function (event) {
+            var reason = event && event.reason;
+            var msg = reason && typeof reason === 'object' ? reason.message : reason;
+            var stack = reason && typeof reason === 'object' ? reason.stack : '';
+            if (isBrowserExtensionNoise(msg, stack, '')) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
+        window.addEventListener(
+          'error',
+          function (event) {
+            var stack = event && event.error ? event.error.stack : '';
+            if (isBrowserExtensionNoise(event && event.message, stack, event && event.filename)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
+      })();
+    </script>
   </head>
   <body class="bg-[#090d16] text-slate-100 overflow-hidden select-none touch-none">
     <div id="root"></div>

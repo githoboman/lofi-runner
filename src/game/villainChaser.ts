@@ -9,6 +9,7 @@ export interface VillainUpdateParams {
   playerY: number;
   isPlayerSliding: boolean;
   isPlayerFlying: boolean;
+  isChasing: boolean;
   speedRatio: number;
   isGameOver: boolean;
   isMenuPreview: boolean;
@@ -315,6 +316,11 @@ export class VillainChaserController {
   }
 
   public triggerSurge(duration = 6.5): void {
+    if (!this.root.visible) {
+      // Rush back into frame dramatically from behind the camera when player hits an obstacle!
+      this.root.visible = true;
+      this.z = Math.max(this.z, 9.8);
+    }
     this.surgeTimer = Math.max(this.surgeTimer, duration);
     this.batonSwing = 1.0;
     this.capeRootSpring.impulse(4.8, 0);
@@ -338,6 +344,7 @@ export class VillainChaserController {
       playerY,
       isPlayerSliding,
       isPlayerFlying,
+      isChasing,
       speedRatio,
       isGameOver,
       isMenuPreview,
@@ -348,31 +355,37 @@ export class VillainChaserController {
       return;
     }
 
-    this.root.visible = true;
-
     if (this.surgeTimer > 0) this.surgeTimer = Math.max(0, this.surgeTimer - dt);
     if (this.flinchTimer > 0) this.flinchTimer = Math.max(0, this.flinchTimer - dt);
     if (this.batonSwing > 0) this.batonSwing = Math.max(0, this.batonSwing - dt * 1.6);
 
-    // Pursuit distance logic:
-    // - Game Over: lunges right beside/behind the fallen Yeti to capture!
-    // - Surge (run start or after hit): relentlessly on Yeti's heels (z = 2.45..3.1)
-    // - Star Flight: drops slightly back & fires hover jets below the flying Yeti
-    // - Normal pursuit: stalks closely at z = 4.55 so the player always feels hunted!
-    if (isGameOver) {
-      this.targetZ = 1.55;
-    } else if (isPlayerFlying) {
-      this.targetZ = 5.6;
-    } else if (this.flinchTimer > 0) {
-      this.targetZ = 5.4;
-    } else if (this.surgeTimer > 0) {
-      this.targetZ = 2.45 + Math.sin(elapsed * 4.5) * 0.22;
+    // If outrun cleanly (not chasing & not game over), smoothly drop behind the camera and stay hidden until next hit!
+    if (!isChasing && !isGameOver) {
+      if (!this.root.visible) return;
+      this.targetZ = 15.2;
+      this.z = THREE.MathUtils.damp(this.z, this.targetZ, 2.2, dt);
+      this.root.position.set(this.x, 0, this.z);
+      if (this.z > 13.4) {
+        this.root.visible = false;
+        return;
+      }
     } else {
-      this.targetZ = 4.45 + Math.sin(elapsed * 1.4) * 0.35;
-    }
+      this.root.visible = true;
+      if (isGameOver) {
+        this.targetZ = 1.55;
+      } else if (isPlayerFlying) {
+        this.targetZ = 5.6;
+      } else if (this.flinchTimer > 0) {
+        this.targetZ = 5.4;
+      } else if (this.surgeTimer > 0) {
+        this.targetZ = 2.45 + Math.sin(elapsed * 4.5) * 0.22;
+      } else {
+        this.targetZ = 4.45 + Math.sin(elapsed * 1.4) * 0.35;
+      }
 
-    const zRate = isGameOver ? 6.5 : this.surgeTimer > 0 ? 5.2 : 2.6;
-    this.z = THREE.MathUtils.damp(this.z, this.targetZ, zRate, dt);
+      const zRate = isGameOver ? 6.5 : this.surgeTimer > 0 ? 5.2 : 2.6;
+      this.z = THREE.MathUtils.damp(this.z, this.targetZ, zRate, dt);
+    }
 
     // Track Yeti's lane with chase inertia
     this.prevX = this.x;

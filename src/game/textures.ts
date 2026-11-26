@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { SceneId } from './types';
+import type { CharacterId, SceneId } from './types';
 
 function configureColorTexture(
   tex: THREE.Texture,
@@ -153,29 +153,30 @@ export function createRoadTexture(sceneId: SceneId, maxAniso: number): THREE.Can
       ctx.fillRect(332, y, 8, 32);
     }
   } else if (sceneId === 'slime_catacombs') {
-    // Neon Slime's Sewer Tunnels: riveted steel catwalk grating over glowing toxic runoff
-    ctx.fillStyle = '#0e1916';
+    // Neon Slime's Industrial Lab: dark slate steel deck with restrained deep emerald accents
+    ctx.fillStyle = '#0f161b';
     ctx.fillRect(0, 0, w, h);
 
     for (let y = 0; y < h; y += 24) {
-      ctx.fillStyle = y % 48 === 0 ? '#182b24' : '#13221c';
+      ctx.fillStyle = y % 48 === 0 ? '#18222a' : '#131b22';
       ctx.fillRect(24, y, w - 48, 20);
-      ctx.fillStyle = 'rgba(74, 222, 128, 0.22)';
+      ctx.fillStyle = 'rgba(20, 83, 65, 0.22)';
       ctx.fillRect(24, y + 20, w - 48, 4);
     }
 
-    // Glowing neon-green sewer runoff gutters along both outer edges
-    ctx.fillStyle = '#16a34a';
+    // Muted dark industrial containment gutters along outer edges (no harsh lime glare)
+    ctx.fillStyle = '#14382c';
     ctx.fillRect(0, 0, 24, h);
     ctx.fillRect(w - 24, 0, 24, h);
-    ctx.fillStyle = '#bef264';
-    ctx.fillRect(8, 0, 8, h);
-    ctx.fillRect(w - 16, 0, 8, h);
+    ctx.fillStyle = '#1f6f52';
+    ctx.fillRect(9, 0, 6, h);
+    ctx.fillRect(w - 15, 0, 6, h);
 
-    ctx.fillStyle = '#4ade80';
+    // Subtle deep-emerald lane dashes for clean readability without eye strain
+    ctx.fillStyle = '#2a8563';
     for (let y = 10; y < h; y += 48) {
-      ctx.fillRect(172, y, 8, 28);
-      ctx.fillRect(332, y, 8, 28);
+      ctx.fillRect(172, y, 7, 28);
+      ctx.fillRect(333, y, 7, 28);
     }
   } else if (sceneId === 'cyber_foundry') {
     // Half-Cyborg's Pure Cyberpunk City: wet rain-slick dark asphalt with glowing cyan & magenta circuit strips
@@ -597,26 +598,26 @@ export function createParallaxHorizonTexture(
     }
   } else if (sceneId === 'slime_catacombs') {
     if (layer === 'far') {
-      // Towering subterranean bio-containment silos & mega-pipes
+      // Towering subterranean industrial slate silos & containment pipes
       const count = 16;
       const step = w / count;
       for (let i = 0; i < count; i++) {
         const x = i * step;
         const bw = step * 0.72;
         const bh = 95 + ((i * 47) % 105);
-        ctx.fillStyle = i % 2 === 0 ? 'rgba(6, 36, 23, 0.92)' : 'rgba(10, 48, 30, 0.88)';
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(13, 22, 28, 0.94)' : 'rgba(19, 30, 38, 0.9)';
         ctx.fillRect(x, h - bh, bw, bh);
 
-        // Glowing neon slime gauge strips
-        ctx.fillStyle = 'rgba(74, 222, 128, 0.65)';
-        ctx.fillRect(x + bw * 0.25, h - bh + 18, bw * 0.5, 8);
-        ctx.fillStyle = 'rgba(190, 242, 100, 0.42)';
-        ctx.fillRect(x + bw * 0.44, h - bh + 34, 4, bh - 48);
+        // Restrained deep-teal/emerald gauge strips
+        ctx.fillStyle = 'rgba(31, 111, 82, 0.55)';
+        ctx.fillRect(x + bw * 0.25, h - bh + 18, bw * 0.5, 6);
+        ctx.fillStyle = 'rgba(42, 133, 99, 0.34)';
+        ctx.fillRect(x + bw * 0.45, h - bh + 34, 3, bh - 48);
       }
     } else {
-      // Swirling bioluminescent ectoplasm mist bands
-      drawCloudBand('rgba(74, 222, 128, 0.36)', 'rgba(22, 163, 74, 0.18)', 130, 18, 44, 88);
-      drawCloudBand('rgba(190, 242, 100, 0.28)', 'rgba(34, 197, 94, 0.1)', 88, 14, 30, 62);
+      // Soft dark-slate subterranean steam mist (no bright neon-green wash)
+      drawCloudBand('rgba(30, 56, 52, 0.28)', 'rgba(15, 29, 34, 0.16)', 130, 16, 44, 84);
+      drawCloudBand('rgba(24, 68, 56, 0.18)', 'rgba(12, 24, 28, 0.08)', 90, 12, 30, 60);
     }
   } else if (sceneId === 'cyber_foundry') {
     if (layer === 'far') {
@@ -700,16 +701,16 @@ export function createFlowingSlimeTexture(maxAniso: number): THREE.CanvasTexture
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
 
-  // Rich toxic emerald base
-  ctx.fillStyle = '#0d5c2b';
+  // Deep forest-emerald industrial liquid base (comfortable on eyes)
+  ctx.fillStyle = '#092b20';
   ctx.fillRect(0, 0, size, size);
 
-  // Seamless sinusoidal flowing viscous slime ribbons (tileable vertically & horizontally)
+  // Seamless sinusoidal flowing viscous slime ribbons in restrained dark-emerald tones
   const bands = [
-    { color: 'rgba(22, 163, 74, 0.85)', width: 58, amp: 24, freq: 2, phase: 0.2 },
-    { color: 'rgba(74, 222, 128, 0.72)', width: 32, amp: 34, freq: 3, phase: 1.4 },
-    { color: 'rgba(163, 230, 53, 0.65)', width: 16, amp: 28, freq: 2, phase: 2.7 },
-    { color: 'rgba(217, 249, 157, 0.55)', width: 7, amp: 22, freq: 4, phase: 0.9 },
+    { color: 'rgba(15, 76, 54, 0.82)', width: 58, amp: 24, freq: 2, phase: 0.2 },
+    { color: 'rgba(22, 105, 74, 0.62)', width: 30, amp: 34, freq: 3, phase: 1.4 },
+    { color: 'rgba(34, 134, 96, 0.45)', width: 14, amp: 28, freq: 2, phase: 2.7 },
+    { color: 'rgba(74, 168, 132, 0.32)', width: 6, amp: 22, freq: 4, phase: 0.9 },
   ];
 
   for (let b = 0; b < bands.length; b++) {
@@ -737,15 +738,15 @@ export function createFlowingSlimeTexture(maxAniso: number): THREE.CanvasTexture
     }
   }
 
-  // Glossy floating toxic foam bubbles & glowing ripples baked cleanly into the flow
-  for (let i = 0; i < 42; i++) {
+  // Subtle darker liquid ripples baked into the surface
+  for (let i = 0; i < 32; i++) {
     const cx = ((i * 113 + 37) % size);
     const cy = ((i * 197 + 53) % size);
-    const r = 6 + (i % 5) * 4.5;
+    const r = 6 + (i % 5) * 4;
     const grad = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.25, 1, cx, cy, r);
-    grad.addColorStop(0, 'rgba(236, 252, 203, 0.85)');
-    grad.addColorStop(0.55, 'rgba(134, 239, 172, 0.35)');
-    grad.addColorStop(1, 'rgba(22, 163, 74, 0)');
+    grad.addColorStop(0, 'rgba(94, 185, 148, 0.38)');
+    grad.addColorStop(0.55, 'rgba(24, 102, 74, 0.22)');
+    grad.addColorStop(1, 'rgba(10, 48, 34, 0)');
     ctx.fillStyle = grad;
     for (const ox of [-size, 0, size]) {
       for (const oy of [-size, 0, size]) {
@@ -872,5 +873,741 @@ export function createBrownMagmaTexture(maxAniso: number): THREE.CanvasTexture {
   tex.needsUpdate = true;
   return tex;
 }
+
+/**
+ * Tileable half-pipe slide chute textures for each world's signature mid-run Slide / Blackhole zone!
+ */
+export function createSlideSurfaceTexture(sceneId: SceneId, maxAniso: number): THREE.CanvasTexture {
+  const w = 512;
+  const h = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+
+  if (sceneId === 'frost_sanctuary') {
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0, '#f8fafc');
+    grad.addColorStop(0.18, '#bae6fd');
+    grad.addColorStop(0.5, '#e0f2fe');
+    grad.addColorStop(0.82, '#bae6fd');
+    grad.addColorStop(1, '#f8fafc');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    for (let i = 0; i < 18; i++) {
+      const x = ((i + 0.5) / 18) * w;
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.68)' : 'rgba(56,189,248,0.28)';
+      ctx.fillRect(x - 6, 0, 12, h);
+    }
+    ctx.strokeStyle = 'rgba(2, 132, 199, 0.45)';
+    ctx.lineWidth = 8;
+    for (let y = 40; y < h; y += 128) {
+      ctx.beginPath();
+      ctx.moveTo(w * 0.24, y + 36);
+      ctx.lineTo(w * 0.5, y);
+      ctx.lineTo(w * 0.76, y + 36);
+      ctx.stroke();
+    }
+  } else if (sceneId === 'inferno_caldera') {
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0, '#2a1811');
+    grad.addColorStop(0.2, '#3d2216');
+    grad.addColorStop(0.5, '#572d18');
+    grad.addColorStop(0.8, '#3d2216');
+    grad.addColorStop(1, '#2a1811');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    const streaks = [
+      { x: 0.2, c: 'rgba(180, 83, 9, 0.58)', w: 22 },
+      { x: 0.38, c: 'rgba(217, 119, 6, 0.55)', w: 14 },
+      { x: 0.5, c: 'rgba(234, 88, 12, 0.72)', w: 28 },
+      { x: 0.62, c: 'rgba(217, 119, 6, 0.55)', w: 14 },
+      { x: 0.8, c: 'rgba(180, 83, 9, 0.58)', w: 22 },
+    ];
+    for (const s of streaks) {
+      ctx.strokeStyle = s.c;
+      ctx.lineWidth = s.w;
+      ctx.beginPath();
+      for (let y = 0; y <= h; y += 16) {
+        const t = (y / h) * Math.PI * 2;
+        const px = s.x * w + Math.sin(t * 2 + s.x * 10) * 14;
+        if (y === 0) ctx.moveTo(px, y);
+        else ctx.lineTo(px, y);
+      }
+      ctx.stroke();
+    }
+  } else if (sceneId === 'slime_catacombs') {
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0, '#0a221b');
+    grad.addColorStop(0.2, '#113a2d');
+    grad.addColorStop(0.5, '#17523f');
+    grad.addColorStop(0.8, '#113a2d');
+    grad.addColorStop(1, '#0a221b');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    for (let i = 0; i < 6; i++) {
+      const x = ((i + 0.5) / 6) * w;
+      ctx.strokeStyle = i % 2 === 0 ? 'rgba(52, 152, 114, 0.42)' : 'rgba(12, 46, 36, 0.55)';
+      ctx.lineWidth = 16;
+      ctx.beginPath();
+      for (let y = 0; y <= h; y += 16) {
+        const t = (y / h) * Math.PI * 2;
+        const px = x + Math.sin(t * 2 + i) * 18;
+        if (y === 0) ctx.moveTo(px, y);
+        else ctx.lineTo(px, y);
+      }
+      ctx.stroke();
+    }
+  } else if (sceneId === 'void_gallery') {
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0, '#090516');
+    grad.addColorStop(0.22, '#1e1042');
+    grad.addColorStop(0.5, '#070411');
+    grad.addColorStop(0.78, '#1e1042');
+    grad.addColorStop(1, '#090516');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = 'rgba(167, 139, 250, 0.55)';
+    ctx.lineWidth = 5;
+    for (let y = 0; y < h; y += 64) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.quadraticCurveTo(w * 0.5, y + 36, w, y);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(250, 204, 21, 0.65)';
+    ctx.lineWidth = 4;
+    for (const fx of [0.16, 0.34, 0.66, 0.84]) {
+      ctx.beginPath();
+      ctx.moveTo(fx * w, 0);
+      ctx.lineTo(fx * w, h);
+      ctx.stroke();
+    }
+  } else {
+    ctx.fillStyle = '#050816';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+    ctx.lineWidth = 4;
+    for (let y = 0; y < h; y += 64) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  return configureColorTexture(tex, maxAniso, 1, 16) as THREE.CanvasTexture;
+}
+
+/**
+ * Faithfully hand-crafted high-resolution 512x512 face plate textures matching the exact
+ * Lofi & Mystic Yetis original reference artworks (expressions, linework, eyes, teeth & splits).
+ */
+export function createYetiFaceTexture(charId: CharacterId, maxAniso: number): THREE.CanvasTexture {
+  const s = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = s;
+  canvas.height = s;
+  const ctx = canvas.getContext('2d')!;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const drawLofiEye = (
+    cx: number,
+    cy: number,
+    rx: number,
+    ry: number,
+    outline: string,
+    sclera: string,
+    pupilColor: string,
+    sleepy = true,
+  ) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx - rx, cy + 4);
+    ctx.quadraticCurveTo(cx, cy - ry * 1.35, cx + rx, cy + 4);
+    ctx.quadraticCurveTo(cx, cy + ry * 1.15, cx - rx, cy + 4);
+    ctx.closePath();
+    ctx.fillStyle = sclera;
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+
+    if (pupilColor) {
+      ctx.fillStyle = pupilColor;
+      ctx.beginPath();
+      ctx.arc(cx, cy + 2, ry * 0.92, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(cx - ry * 0.34, cy - ry * 0.28, ry * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = outline;
+    ctx.stroke();
+
+    if (sleepy) {
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.moveTo(cx - rx * 1.02, cy - ry * 0.62);
+      ctx.quadraticCurveTo(cx, cy - ry * 1.62, cx + rx * 1.02, cy - ry * 0.56);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(cx - rx * 0.96, cy - ry * 1.18);
+      ctx.quadraticCurveTo(cx, cy - ry * 2.08, cx + rx * 0.96, cy - ry * 1.1);
+      ctx.stroke();
+
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(cx - rx * 0.85, cy + ry * 1.12);
+      ctx.quadraticCurveTo(cx, cy + ry * 1.56, cx + rx * 0.85, cy + ry * 1.08);
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  const drawWavyLips = (
+    yCenter: number,
+    fillColor: string,
+    outlineColor: string,
+    xLeft = 74,
+    xRight = 438,
+  ) => {
+    const mid = (xLeft + xRight) * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(xLeft, yCenter + 4);
+    ctx.bezierCurveTo(xLeft + 26, yCenter - 36, mid - 72, yCenter - 16, mid - 28, yCenter - 26);
+    ctx.quadraticCurveTo(mid, yCenter - 36, mid + 28, yCenter - 26);
+    ctx.bezierCurveTo(mid + 72, yCenter - 16, xRight - 26, yCenter - 36, xRight, yCenter + 4);
+    ctx.bezierCurveTo(xRight - 24, yCenter + 48, mid + 64, yCenter + 38, mid, yCenter + 42);
+    ctx.bezierCurveTo(mid - 64, yCenter + 38, xLeft + 24, yCenter + 48, xLeft, yCenter + 4);
+    ctx.closePath();
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = outlineColor;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(xLeft + 14, yCenter + 6);
+    ctx.bezierCurveTo(xLeft + 80, yCenter - 6, mid - 40, yCenter + 18, mid, yCenter + 4);
+    ctx.bezierCurveTo(mid + 40, yCenter + 18, xRight - 80, yCenter - 6, xRight - 14, yCenter + 6);
+    ctx.lineWidth = 9;
+    ctx.strokeStyle = outlineColor;
+    ctx.stroke();
+  };
+
+  if (charId === 'og_lofi') {
+    ctx.fillStyle = '#d7dde6';
+    ctx.fillRect(0, 0, s, s);
+
+    ctx.fillStyle = '#5c9ce6';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(s, 0);
+    ctx.lineTo(s, 276);
+    ctx.quadraticCurveTo(380, 294, 256, 286);
+    ctx.quadraticCurveTo(132, 294, 0, 276);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = 9;
+    ctx.strokeStyle = '#0b0f19';
+    ctx.stroke();
+
+    drawLofiEye(162, 186, 86, 56, '#0b0f19', '#ffffff', '#0b0f19', true);
+    drawLofiEye(350, 186, 86, 56, '#0b0f19', '#ffffff', '#0b0f19', true);
+
+    ctx.fillStyle = '#5c9ce6';
+    ctx.beginPath();
+    ctx.moveTo(212, 256);
+    ctx.quadraticCurveTo(256, 224, 300, 256);
+    ctx.quadraticCurveTo(324, 296, 286, 306);
+    ctx.quadraticCurveTo(256, 314, 226, 306);
+    ctx.quadraticCurveTo(188, 296, 212, 256);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = 9;
+    ctx.strokeStyle = '#0b0f19';
+    ctx.stroke();
+
+    ctx.fillStyle = '#0b0f19';
+    ctx.beginPath();
+    ctx.ellipse(234, 282, 11, 14, -0.18, 0, Math.PI * 2);
+    ctx.ellipse(278, 282, 11, 14, 0.18, 0, Math.PI * 2);
+    ctx.fill();
+
+    drawWavyLips(368, '#5c9ce6', '#0b0f19', 70, 442);
+  } else if (charId === 'inferno_blaze') {
+    const bg = ctx.createLinearGradient(0, 0, 0, s);
+    bg.addColorStop(0, '#f97316');
+    bg.addColorStop(0.55, '#fb923c');
+    bg.addColorStop(1, '#ea580c');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, s, s);
+
+    const crimson = '#b91c1c';
+
+    const drawFlameBrow = (dir: number) => {
+      ctx.save();
+      ctx.translate(256, 174);
+      ctx.scale(dir, 1);
+      ctx.beginPath();
+      ctx.moveTo(8, 12);
+      ctx.quadraticCurveTo(68, -32, 146, -12);
+      ctx.quadraticCurveTo(184, 2, 198, 34);
+      ctx.quadraticCurveTo(156, 18, 126, 32);
+      ctx.quadraticCurveTo(80, 12, 12, 24);
+      ctx.closePath();
+      ctx.fillStyle = '#fde047';
+      ctx.fill();
+      ctx.lineWidth = 9;
+      ctx.strokeStyle = crimson;
+      ctx.stroke();
+
+      ctx.fillStyle = '#fef9c3';
+      ctx.beginPath();
+      ctx.ellipse(84, -4, 48, 13, 0.08, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(34, 42);
+      ctx.quadraticCurveTo(100, 28, 162, 46);
+      ctx.lineWidth = 9;
+      ctx.strokeStyle = crimson;
+      ctx.stroke();
+      ctx.restore();
+    };
+    drawFlameBrow(-1);
+    drawFlameBrow(1);
+
+    ctx.fillStyle = '#f97316';
+    ctx.beginPath();
+    ctx.moveTo(214, 248);
+    ctx.quadraticCurveTo(256, 224, 298, 248);
+    ctx.quadraticCurveTo(316, 282, 256, 288);
+    ctx.quadraticCurveTo(196, 282, 214, 248);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = crimson;
+    ctx.stroke();
+
+    ctx.fillStyle = crimson;
+    ctx.beginPath();
+    ctx.ellipse(234, 266, 10, 13, -0.2, 0, Math.PI * 2);
+    ctx.ellipse(278, 266, 10, 13, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath();
+    ctx.roundRect(62, 314, 388, 108, 52);
+    ctx.fill();
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = crimson;
+    ctx.stroke();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(86, 336, 340, 64, 30);
+    ctx.fillStyle = '#fef9c3';
+    ctx.fill();
+    ctx.clip();
+
+    ctx.strokeStyle = crimson;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(80, 368);
+    ctx.lineTo(432, 368);
+    ctx.stroke();
+    for (let tx = 128; tx <= 388; tx += 36) {
+      ctx.beginPath();
+      ctx.moveTo(tx, 332);
+      ctx.lineTo(tx, 404);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.roundRect(86, 336, 340, 64, 30);
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = crimson;
+    ctx.stroke();
+  } else if (charId === 'neon_slime') {
+    const darkGreen = '#14532d';
+    const bg = ctx.createLinearGradient(0, 0, 0, s);
+    bg.addColorStop(0, '#4ade80');
+    bg.addColorStop(0.55, '#86efac');
+    bg.addColorStop(1, '#4ade80');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, s, s);
+
+    drawLofiEye(162, 178, 84, 52, '#166534', '#bbf7d0', '#15803d', true);
+    drawLofiEye(350, 178, 84, 52, '#166534', '#bbf7d0', '#15803d', true);
+
+    ctx.fillStyle = '#22c55e';
+    ctx.beginPath();
+    ctx.moveTo(0, 240);
+    ctx.quadraticCurveTo(64, 286, 118, 250);
+    ctx.quadraticCurveTo(174, 294, 214, 256);
+    ctx.quadraticCurveTo(256, 298, 298, 256);
+    ctx.quadraticCurveTo(338, 294, 394, 250);
+    ctx.quadraticCurveTo(448, 286, s, 240);
+    ctx.lineTo(s, 224);
+    ctx.lineTo(0, 224);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = darkGreen;
+    ctx.stroke();
+
+    ctx.fillStyle = '#4ade80';
+    ctx.beginPath();
+    ctx.ellipse(256, 258, 42, 26, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = darkGreen;
+    ctx.stroke();
+    ctx.fillStyle = darkGreen;
+    ctx.beginPath();
+    ctx.arc(238, 256, 9, 0, Math.PI * 2);
+    ctx.arc(274, 256, 9, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(74, 310, 364, 116, 40);
+    ctx.fillStyle = '#a3e635';
+    ctx.fill();
+    ctx.clip();
+
+    ctx.strokeStyle = darkGreen;
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(68, 368);
+    ctx.lineTo(444, 368);
+    ctx.stroke();
+    for (let tx = 114; tx <= 398; tx += 36) {
+      ctx.beginPath();
+      ctx.moveTo(tx, 304);
+      ctx.lineTo(tx, 432);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.roundRect(74, 310, 364, 116, 40);
+    ctx.lineWidth = 9;
+    ctx.strokeStyle = darkGreen;
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(236, 252, 203, 0.72)';
+    ctx.beginPath();
+    ctx.ellipse(98, 92, 34, 14, -0.3, 0, Math.PI * 2);
+    ctx.ellipse(422, 108, 22, 10, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (charId === 'half_cyborg') {
+    // RIGHT HALF (Organic OG Lofi)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(256, 0, 256, s);
+    ctx.clip();
+    ctx.fillStyle = '#d7dde6';
+    ctx.fillRect(256, 0, 256, s);
+    ctx.fillStyle = '#5c9ce6';
+    ctx.fillRect(256, 0, 256, 284);
+    ctx.lineWidth = 9;
+    ctx.strokeStyle = '#0b0f19';
+    ctx.beginPath();
+    ctx.moveTo(256, 284);
+    ctx.lineTo(s, 276);
+    ctx.stroke();
+    drawLofiEye(352, 186, 86, 56, '#0b0f19', '#ffffff', '#0b0f19', true);
+    ctx.fillStyle = '#5c9ce6';
+    ctx.beginPath();
+    ctx.moveTo(256, 232);
+    ctx.quadraticCurveTo(314, 248, 304, 292);
+    ctx.quadraticCurveTo(286, 312, 256, 310);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.stroke();
+    ctx.fillStyle = '#0b0f19';
+    ctx.beginPath();
+    ctx.ellipse(278, 282, 11, 14, 0.16, 0, Math.PI * 2);
+    ctx.fill();
+    drawWavyLips(368, '#5c9ce6', '#0b0f19', 70, 442);
+    ctx.restore();
+
+    // LEFT HALF (White & Chrome Clockwork Cyborg)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, 256, s);
+    ctx.clip();
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, 256, s);
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(36, 48, 220, 420);
+
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 5;
+    for (let k = 0; k < 6; k++) {
+      ctx.beginPath();
+      ctx.moveTo(64 + k * 24, 390);
+      ctx.lineTo(130 + k * 22, 476);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath();
+    ctx.arc(198, 434, 34, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(198, 434, 14, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(166, 186, 84, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 9;
+    ctx.strokeStyle = '#0f172a';
+    ctx.stroke();
+
+    for (const r of [64, 44, 24]) {
+      ctx.beginPath();
+      ctx.arc(166, 186, r, 0, Math.PI * 2);
+      ctx.lineWidth = r === 24 ? 10 : 5;
+      ctx.strokeStyle = '#0f172a';
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(166, 186, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(166, 186, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(86, 166);
+    ctx.quadraticCurveTo(166, 134, 246, 166);
+    ctx.moveTo(86, 206);
+    ctx.quadraticCurveTo(166, 238, 246, 206);
+    ctx.stroke();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(228, 282, 13, 0, Math.PI * 2);
+    ctx.fill();
+
+    drawWavyLips(368, '#f1f5f9', '#0f172a', 70, 442);
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#0f172a';
+    for (const sx of [136, 196]) {
+      ctx.beginPath();
+      ctx.moveTo(sx, 338);
+      ctx.lineTo(sx, 404);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#0f172a';
+    for (const [rx, ry] of [
+      [106, 356],
+      [166, 354],
+      [226, 356],
+      [106, 386],
+      [166, 388],
+      [226, 386],
+    ]) {
+      ctx.beginPath();
+      ctx.arc(rx, ry, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 4;
+    for (const ty of [78, 128, 260, 320]) {
+      ctx.beginPath();
+      ctx.moveTo(10, ty);
+      ctx.lineTo(42, ty);
+      ctx.lineTo(54, ty + 14);
+      ctx.stroke();
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(54, ty + 14, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    ctx.strokeStyle = '#0b0f19';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(256, 0);
+    ctx.lineTo(256, s);
+    ctx.stroke();
+  } else {
+    // 5. VOID SHADOW — 50/50 split dark obsidian teeth left + midnight stitched shadow right + glowing pale-white almond eyes
+    ctx.fillStyle = '#2d3348';
+    ctx.fillRect(0, 0, 256, s);
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(180, 120);
+    ctx.lineTo(0, 290);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#16132b';
+    ctx.fillRect(256, 0, 256, s);
+
+    ctx.strokeStyle = '#070610';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(256, 0);
+    ctx.lineTo(256, s);
+    ctx.stroke();
+
+    for (const ex of [162, 350]) {
+      ctx.save();
+      ctx.shadowColor = '#c4b5fd';
+      ctx.shadowBlur = 22;
+      ctx.beginPath();
+      ctx.moveTo(ex - 82, 186);
+      ctx.quadraticCurveTo(ex, 134, ex + 82, 186);
+      ctx.quadraticCurveTo(ex, 234, ex - 82, 186);
+      ctx.closePath();
+      ctx.fillStyle = '#f5f3ff';
+      ctx.fill();
+      ctx.restore();
+
+      ctx.lineWidth = 9;
+      ctx.strokeStyle = '#070610';
+      ctx.stroke();
+
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.moveTo(ex - 76, 134);
+      ctx.quadraticCurveTo(ex, 110, ex + 76, 134);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = '#070610';
+    ctx.beginPath();
+    ctx.ellipse(234, 274, 11, 14, -0.18, 0, Math.PI * 2);
+    ctx.ellipse(278, 274, 11, 14, 0.18, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 290, 256, 222);
+    ctx.clip();
+    ctx.fillStyle = '#3c4257';
+    ctx.beginPath();
+    ctx.roundRect(64, 326, 224, 96, 40);
+    ctx.fill();
+    ctx.lineWidth = 9;
+    ctx.strokeStyle = '#070610';
+    ctx.stroke();
+
+    ctx.fillStyle = '#475569';
+    ctx.beginPath();
+    ctx.roundRect(84, 344, 186, 58, 22);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(84, 373);
+    ctx.lineTo(256, 373);
+    for (const tx of [126, 168, 212]) {
+      ctx.moveTo(tx, 344);
+      ctx.lineTo(tx, 402);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.strokeStyle = '#4c466b';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.moveTo(256, 376);
+    ctx.quadraticCurveTo(340, 368, 418, 342);
+    ctx.stroke();
+
+    for (let i = 0; i < 4; i++) {
+      const t = (i + 0.5) / 4;
+      const sx = 276 + t * 136;
+      const sy = 374 - t * 28;
+      ctx.beginPath();
+      ctx.moveTo(sx - 6, sy - 22);
+      ctx.lineTo(sx + 6, sy + 22);
+      ctx.stroke();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  return configureColorTexture(tex, maxAniso) as THREE.CanvasTexture;
+}
+
+/**
+ * Crisp white-and-chrome skeletal truss, circuit traces & exposed gear texture
+ * for Half-Cyborg's mechanical right torso & armor plates.
+ */
+export function createCyborgBodyTexture(maxAniso: number): THREE.CanvasTexture {
+  const s = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = s;
+  canvas.height = s;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(0, 0, s, s);
+
+  ctx.fillStyle = '#334155';
+  const tris: [number, number, number, number, number, number][] = [
+    [28, 36, 114, 36, 70, 118],
+    [138, 36, 224, 36, 182, 118],
+    [76, 140, 178, 140, 128, 224],
+  ];
+  for (const [x1, y1, x2, y2, x3, y3] of tris) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x3, y3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#0f172a';
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 3;
+  for (let i = 0; i < 6; i++) {
+    const y = 20 + i * 42;
+    ctx.beginPath();
+    ctx.moveTo(8, y);
+    ctx.lineTo(248, y);
+    ctx.stroke();
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(16 + (i % 2) * 224, y, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  return configureColorTexture(tex, maxAniso) as THREE.CanvasTexture;
+}
+
 
 

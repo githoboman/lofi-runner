@@ -5,19 +5,107 @@ import type {
   DifficultyId,
   SceneId,
   SoundKey,
+  StoreBoosterConfig,
+  StoreUpgradeConfig,
 } from './types';
+
+export const STORE_UPGRADES: StoreUpgradeConfig[] = [
+  {
+    id: 'magnet',
+    name: 'SUI Coin Magnet',
+    description: 'Pulls nearby SUI Coins automatically across lanes for every Yeti.',
+    statLabel: '+1.1m pull radius per level',
+    maxLevel: 5,
+    baseCost: 80,
+    costStep: 70,
+  },
+  {
+    id: 'sword',
+    name: 'Blade Overclock',
+    description: 'Extends Signature Energy Sword duration and forward cleave reach.',
+    statLabel: '+1.2s duration · +0.6m reach / lv',
+    maxLevel: 5,
+    baseCost: 90,
+    costStep: 80,
+  },
+  {
+    id: 'star',
+    name: 'Star Thrusters',
+    description: 'Extends Star Flight duration and amplifies all aerial stunt points.',
+    statLabel: '+1.0s flight · +10% stunt score / lv',
+    maxLevel: 5,
+    baseCost: 100,
+    costStep: 85,
+  },
+  {
+    id: 'shield',
+    name: 'Aegis Matrix',
+    description: 'Longer hit recovery; Lv 3+ grants +1 starting Void Shield every run.',
+    statLabel: '+0.25s recovery · +1 shield at Lv 3',
+    maxLevel: 5,
+    baseCost: 120,
+    costStep: 95,
+  },
+  {
+    id: 'yield',
+    name: 'SUI Yield Core',
+    description: 'Boosts SUI Coin earnings and run score payout at the end of every run.',
+    statLabel: '+15% SUI Coin payout per level',
+    maxLevel: 5,
+    baseCost: 110,
+    costStep: 90,
+  },
+];
+
+export const STORE_BOOSTERS: StoreBoosterConfig[] = [
+  {
+    id: 'headstart',
+    name: 'Hyper Headstart',
+    description: 'Launch into Star Flight for 4s with an instant 350m opening burst.',
+    cost: 75,
+    maxStack: 9,
+  },
+  {
+    id: 'starter_sword',
+    name: 'Ignited Blade',
+    description: 'Start your run wielding your Yeti Signature 3D Sword immediately.',
+    cost: 60,
+    maxStack: 9,
+  },
+  {
+    id: 'extra_shield',
+    name: 'Void Aegis Charge',
+    description: 'Adds +1 extra Void Shield charge to absorb an obstacle hit.',
+    cost: 50,
+    maxStack: 9,
+  },
+  {
+    id: 'double_coins',
+    name: '2x SUI Surge',
+    description: 'Doubles every SUI Coin collected during your next run.',
+    cost: 90,
+    maxStack: 9,
+  },
+];
+
+export function getUpgradeCost(cfg: StoreUpgradeConfig, currentLevel: number): number {
+  return cfg.baseCost + currentLevel * cfg.costStep;
+}
 
 export const LANE_WIDTH = 2.6;
 export const LANE_X = [-LANE_WIDTH, 0, LANE_WIDTH] as const;
 
 export const SEGMENT_LENGTH = 30;
 export const SEGMENT_COUNT = 7; // 210 units of active recycled road
-export const SCENE_SWITCH_DISTANCE = 1500;
+export const SCENE_SWITCH_DISTANCE = 2400; // Longer run per world before portal warp
+export const SLIDE_ZONE_START_RATIO = 0.42; // Mid-world slide / zero-G space float begins
+export const SLIDE_ZONE_END_RATIO = 0.72; // Transitions cleanly back to road before portal
+export const HUNTER_OUTRUN_DISTANCE = 320; // Hunter stops chasing once player runs cleanly this far
 
-export const GRAVITY = 42;
-export const JUMP_VELOCITY = 14.8;
-export const DOUBLE_JUMP_VELOCITY = 13.4;
-export const SLIDE_DURATION = 0.68;
+export const GRAVITY = 46;
+export const JUMP_VELOCITY = 15.6;
+export const DOUBLE_JUMP_VELOCITY = 14.2;
+export const SLIDE_DURATION = 0.66;
 export const SPIN_DURATION = 0.44;
 export const SLASH_DURATION = 0.34;
 export const STUMBLE_DURATION = 0.45;
@@ -93,31 +181,31 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
   easy: {
     id: 'easy',
     label: 'Easy',
-    description: '4 lives · Chill pace',
+    description: '4 lives · Fast chill pace',
     lives: 4,
-    startSpeed: 19,
-    maxSpeed: 40,
-    speedRampPerUnit: 0.0045,
+    startSpeed: 26,
+    maxSpeed: 52,
+    speedRampPerUnit: 0.0055,
     scoreMultiplier: 1.0,
   },
   normal: {
     id: 'normal',
     label: 'Normal',
-    description: '3 lives · Classic arcade',
+    description: '3 lives · High-speed arcade',
     lives: 3,
-    startSpeed: 24,
-    maxSpeed: 48,
-    speedRampPerUnit: 0.006,
+    startSpeed: 33,
+    maxSpeed: 64,
+    speedRampPerUnit: 0.0075,
     scoreMultiplier: 1.25,
   },
   hard: {
     id: 'hard',
     label: 'Hard',
-    description: '2 lives · Turbo speed',
+    description: '2 lives · Turbo · Dense gauntlets',
     lives: 2,
-    startSpeed: 30,
-    maxSpeed: 56,
-    speedRampPerUnit: 0.0075,
+    startSpeed: 40,
+    maxSpeed: 74,
+    speedRampPerUnit: 0.0095,
     scoreMultiplier: 1.6,
   },
 };

@@ -1,4 +1,12 @@
-export type GameScreen = 'menu' | 'character' | 'settings' | 'playing' | 'paused' | 'gameover';
+export type GameScreen =
+  | 'menu'
+  | 'character'
+  | 'store'
+  | 'web3'
+  | 'settings'
+  | 'playing'
+  | 'paused'
+  | 'gameover';
 
 export type DifficultyId = 'easy' | 'normal' | 'hard';
 
@@ -19,6 +27,63 @@ export type SceneId =
 export type ObstacleKind = 'crate' | 'overhead' | 'special';
 
 export type PowerupKind = 'sword' | 'star';
+
+export type UpgradeId = 'magnet' | 'sword' | 'star' | 'shield' | 'yield';
+
+export type BoosterId = 'headstart' | 'starter_sword' | 'extra_shield' | 'double_coins';
+
+export type SuiNetworkId = 'testnet' | 'mainnet';
+
+export interface StoreUpgradeConfig {
+  id: UpgradeId;
+  name: string;
+  description: string;
+  statLabel: string;
+  maxLevel: number;
+  baseCost: number;
+  costStep: number;
+}
+
+export interface StoreBoosterConfig {
+  id: BoosterId;
+  name: string;
+  description: string;
+  cost: number;
+  maxStack: number;
+}
+
+export interface ActiveRunLoadout {
+  upgrades: Record<UpgradeId, number>;
+  activeBoosters: BoosterId[];
+}
+
+export interface OnChainReceipt {
+  id: string;
+  kind: 'claim_coins' | 'mint_yeti' | 'submit_score';
+  summary: string;
+  digest: string;
+  network: SuiNetworkId;
+  timestamp: number;
+  mode: 'account' | 'wallet' | 'sandbox';
+  suiIdentifier?: string;
+}
+
+export interface MintedYetiNft {
+  characterId: CharacterId;
+  objectId: string;
+  network: SuiNetworkId;
+  mintedAt: number;
+  digest: string;
+}
+
+export interface BlockchainSaveState {
+  suiIdentifier: string;
+  network: SuiNetworkId;
+  claimedCoins: number;
+  onChainBestScore: number;
+  mintedNfts: Partial<Record<CharacterId, MintedYetiNft>>;
+  receipts: OnChainReceipt[];
+}
 
 export interface DifficultyConfig {
   id: DifficultyId;
@@ -69,9 +134,15 @@ export interface GameSettings {
 
 export interface SaveData {
   lifetimeCoins: number;
+  coinBalance: number;
   highScore: number;
   bestDistance: number;
   selectedCharacter: CharacterId;
+  unlockedCharacters: CharacterId[];
+  upgrades: Record<UpgradeId, number>;
+  boosters: Record<BoosterId, number>;
+  equippedBoosters: BoosterId[];
+  blockchain: BlockchainSaveState;
   settings: GameSettings;
 }
 
@@ -86,7 +157,7 @@ export interface HudSnapshot {
   characterId: CharacterId;
   sceneId: SceneId;
   sceneName: string;
-  sceneProgress: number; // 0..1 within current 1500-unit zone
+  sceneProgress: number; // 0..1 within current zone
   swordRemaining: number; // seconds
   swordDuration: number;
   starRemaining: number; // seconds

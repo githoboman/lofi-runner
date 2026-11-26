@@ -6,7 +6,7 @@ import {
   createHazardStripeTexture,
   createSuiCoinTexture,
 } from './textures';
-import type { ObstacleKind, PowerupKind, SceneId } from './types';
+import type { DifficultyId, ObstacleKind, PowerupKind, SceneId } from './types';
 
 export interface PooledObstacle {
   active: boolean;
@@ -85,8 +85,8 @@ interface CutFlashPlane {
   maxLife: number;
 }
 
-const OBSTACLE_POOL_SIZE = 28;
-const COIN_POOL_SIZE = 96;
+const OBSTACLE_POOL_SIZE = 48;
+const COIN_POOL_SIZE = 120;
 const POWERUP_POOL_SIZE = 6;
 const PARTICLE_POOL_SIZE = 160;
 const DEBRIS_HALF_POOL_SIZE = 24; // Up to 12 simultaneously sliced boxes (2 halves each)
@@ -178,7 +178,11 @@ export class EntityPoolManager {
   private lastOpenLane = 1;
   private nextRowDistance = 0;
   private rowsSincePowerup = 0;
+  private lastRowHadSpecial = false;
+  private lastActionGateRow = false;
+  private slideMode = false;
   private currentScene: SceneId = 'frost_sanctuary';
+  private difficulty: DifficultyId = 'normal';
 
   constructor(scene: THREE.Scene, maxAniso: number) {
     scene.add(this.root);
@@ -190,25 +194,23 @@ export class EntityPoolManager {
     this.hazardMat = new THREE.MeshStandardMaterial({ map: hazardTex, roughness: 0.45, metalness: 0.2 });
     this.steelMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.35, metalness: 0.78 });
 
-    // Frost Sanctuary materials
+    // Frost Sanctuary materials (high-contrast deep glacier cobalt, dark slate & alpine cedar — never blinding white!)
     this.iceBlockMat = new THREE.MeshStandardMaterial({
-      color: 0xbae6fd,
-      emissive: 0x0284c7,
-      emissiveIntensity: 0.24,
-      roughness: 0.16,
+      color: 0x1d4ed8,
+      emissive: 0x0c4a6e,
+      emissiveIntensity: 0.22,
+      roughness: 0.28,
       metalness: 0.18,
-      transparent: true,
-      opacity: 0.92,
     });
     const frostSnowCapMat = new THREE.MeshStandardMaterial({
-      color: 0xf0f9ff,
-      roughness: 0.55,
-      metalness: 0.05,
+      color: 0x334155,
+      roughness: 0.62,
+      metalness: 0.24,
     });
     const frostTimberMat = new THREE.MeshStandardMaterial({
-      color: 0x475569,
-      roughness: 0.72,
-      metalness: 0.18,
+      color: 0x4a3122,
+      roughness: 0.78,
+      metalness: 0.12,
     });
 
     // Inferno Caldera materials (grounded dark volcanic brown basalt + muted amber veins)
@@ -226,22 +228,20 @@ export class EntityPoolManager {
     });
     const emberVeinMat = new THREE.MeshBasicMaterial({ color: 0xc2410c });
 
-    // Slime Catacombs materials
+    // Slime Catacombs materials (grounded dark steel + restrained deep emerald accents — easy on the eyes!)
     this.slimeVatMat = new THREE.MeshStandardMaterial({
-      color: 0x15803d,
-      emissive: 0x22c55e,
-      emissiveIntensity: 0.62,
-      roughness: 0.2,
-      metalness: 0.24,
-      transparent: true,
-      opacity: 0.9,
+      color: 0x0f5132,
+      emissive: 0x047857,
+      emissiveIntensity: 0.28,
+      roughness: 0.28,
+      metalness: 0.26,
     });
     const sewerMetalMat = new THREE.MeshStandardMaterial({
-      color: 0x1f312b,
+      color: 0x1e293b,
       roughness: 0.52,
-      metalness: 0.68,
+      metalness: 0.7,
     });
-    const slimeGlowMat = new THREE.MeshBasicMaterial({ color: 0x4ade80 });
+    const slimeGlowMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
 
     // Cyber Foundry materials
     const cyberContTex = createContainerTexture('#1e293b', maxAniso);
@@ -789,10 +789,21 @@ export class EntityPoolManager {
     }
   }
 
+  public setSlideMode(active: boolean): void {
+    this.slideMode = active;
+  }
+
+  public setDifficulty(difficulty: DifficultyId): void {
+    this.difficulty = difficulty;
+  }
+
   public reset(): void {
     this.lastOpenLane = 1;
-    this.nextRowDistance = 28;
+    this.nextRowDistance = this.difficulty === 'hard' ? 4 : this.difficulty === 'normal' ? 16 : 26;
     this.rowsSincePowerup = 0;
+    this.lastRowHadSpecial = false;
+    this.lastActionGateRow = false;
+    this.slideMode = false;
 
     for (const o of this.obstacles) {
       o.active = false;
@@ -974,10 +985,25 @@ export class EntityPoolManager {
     const dz = speed * dt;
 
     if (distance >= this.nextRowDistance) {
+      let extraStepSpacing = 0;
       if (!pauseObstacleSpawns) {
-        this.spawnReachablePattern(SPAWN_START_Z, starActive);
+        extraStepSpacing = this.spawnReachablePattern(SPAWN_START_Z, starActive, distance, speed);
       }
-      const spacing = THREE.MathUtils.clamp(25 - speed * 0.14, 17, 25);
+      // Difficulty-scaled spacing: Easy stays chill, Normal brisk arcade, Hard relentless dense gauntlets
+      const progressRamp = THREE.MathUtils.clamp(distance / 2200, 0, 1);
+      let baseSpacing: number;
+      if (this.difficulty === 'hard') {
+        const timeWindow = THREE.MathUtils.lerp(0.55, 0.44, progressRamp);
+        baseSpacing = THREE.MathUtils.clamp(speed * timeWindow, 18.5, 29.5);
+      } else if (this.difficulty === 'normal') {
+        const timeWindow = THREE.MathUtils.lerp(0.84, 0.72, progressRamp);
+        baseSpacing = THREE.MathUtils.clamp(speed * timeWindow, 25, 41);
+      } else {
+        baseSpacing = THREE.MathUtils.clamp(speed * 1.02, 30, 52);
+      }
+      const slideMult =
+        this.difficulty === 'hard' ? 1.02 : this.difficulty === 'normal' ? 1.12 : 1.22;
+      const spacing = (this.slideMode ? baseSpacing * slideMult : baseSpacing) + extraStepSpacing;
       this.nextRowDistance = distance + spacing;
     }
 
@@ -1101,40 +1127,180 @@ export class EntityPoolManager {
     }
   }
 
-  private spawnReachablePattern(zPos: number, starActive: boolean): void {
-    const delta = Math.floor(Math.random() * 3) - 1;
-    const openLane = THREE.MathUtils.clamp(this.lastOpenLane + delta, 0, 2);
+  private spawnReachablePattern(
+    zPos: number,
+    starActive: boolean,
+    distance: number,
+    speed: number,
+  ): number {
+    const isHard = this.difficulty === 'hard';
+    const isNormal = this.difficulty === 'normal';
+    const prevOpenLane = this.lastOpenLane;
+
+    // Difficulty-scaled lane-switch pressure so Hard constantly demands crisp lateral weaves
+    let openLane = prevOpenLane;
+    if (isHard) {
+      const candidates = [0, 1, 2].filter((l) => l !== prevOpenLane);
+      // 84% chance to force a lane change on Hard (including cross-lane swaps when on an outer lane)
+      if (Math.random() < 0.84) {
+        const adjacent = candidates.filter((l) => Math.abs(l - prevOpenLane) === 1);
+        const canCross = candidates.length > adjacent.length && !this.lastActionGateRow;
+        if (canCross && Math.random() < 0.34) {
+          openLane = candidates.find((l) => Math.abs(l - prevOpenLane) === 2) ?? adjacent[0];
+        } else {
+          openLane = adjacent[Math.floor(Math.random() * adjacent.length)];
+        }
+      }
+    } else if (isNormal) {
+      if (Math.random() < 0.7) {
+        const adjacent = [prevOpenLane - 1, prevOpenLane + 1].filter((l) => l >= 0 && l <= 2);
+        openLane = adjacent[Math.floor(Math.random() * adjacent.length)];
+      }
+    } else {
+      const delta = Math.floor(Math.random() * 3) - 1;
+      openLane = THREE.MathUtils.clamp(prevOpenLane + delta, 0, 2);
+    }
     this.lastOpenLane = openLane;
 
     const otherLanes = [0, 1, 2].filter((l) => l !== openLane);
-    const blockCount = Math.random() < 0.74 ? 2 : 1;
+    // Shuffle otherLanes so single-lane blocks don't always bias toward lane 0
+    if (Math.random() < 0.5) {
+      otherLanes.reverse();
+    }
 
+    const isSpaceFloat = this.slideMode && this.currentScene === 'cyber_foundry';
+    const ramp = THREE.MathUtils.clamp(distance / 1800, 0, 1);
+
+    // Determine how many lanes are blocked & whether this row is a 3-Lane Action Gate
+    // (2 lanes blocked + reachable lane requires a Jump over a crate or Slide under an overhead!)
+    let blockCount: number;
+    let actionGateKind: 'crate' | 'overhead' | null = null;
+    let extraSpacing = 0;
+
+    if (this.slideMode) {
+      // On Hard slide/space chutes, block 2 lanes frequently so slides stay intense!
+      blockCount = isHard ? (Math.random() < 0.62 ? 2 : 1) : isNormal ? (Math.random() < 0.25 ? 2 : 1) : 1;
+    } else if (isHard) {
+      const roll = Math.random();
+      const gateChance = THREE.MathUtils.lerp(0.36, 0.48, ramp);
+      if (!this.lastActionGateRow && roll < gateChance) {
+        blockCount = 2;
+        actionGateKind = Math.random() < 0.52 ? 'overhead' : 'crate';
+      } else if (roll < 0.9) {
+        blockCount = 2;
+      } else {
+        blockCount = 1;
+      }
+    } else if (isNormal) {
+      const roll = Math.random();
+      if (!this.lastActionGateRow && roll < 0.14) {
+        blockCount = 2;
+        actionGateKind = Math.random() < 0.5 ? 'crate' : 'overhead';
+      } else {
+        blockCount = Math.random() < 0.65 ? 2 : 1;
+      }
+    } else {
+      blockCount = Math.random() < 0.44 ? 2 : 1;
+    }
+
+    this.lastActionGateRow = actionGateKind !== null;
+
+    let spawnedSpecialThisRow = false;
     for (let i = 0; i < blockCount; i++) {
       const lane = otherLanes[i];
-      const roll = Math.random();
       let kind: ObstacleKind = 'crate';
-      if (roll < 0.38) kind = 'crate';
-      else if (roll < 0.68) kind = 'overhead';
-      else kind = 'special';
+      if (isSpaceFloat) {
+        kind = 'special';
+      } else if (this.slideMode) {
+        kind = Math.random() < (isHard ? 0.42 : 0.55) ? 'crate' : 'special';
+      } else if (isHard) {
+        // Hard allows double tall unjumpable monolith walls (forcing clean weaves or Jump/Slide gates!)
+        const roll = Math.random();
+        if (actionGateKind !== null) {
+          // Flanking walls around an Action Gate are mostly tall monoliths so you MUST jump/slide the gate
+          kind = roll < 0.72 ? 'special' : roll < 0.88 ? 'overhead' : 'crate';
+        } else if (roll < 0.46) {
+          kind = 'special';
+        } else if (roll < 0.78) {
+          kind = 'overhead';
+        } else {
+          kind = 'crate';
+        }
+      } else {
+        const allowSpecial = !this.lastRowHadSpecial && !spawnedSpecialThisRow;
+        const roll = Math.random();
+        if (roll < 0.42) kind = 'crate';
+        else if (roll < 0.74 || !allowSpecial) kind = 'overhead';
+        else kind = 'special';
+      }
+      if (kind === 'special') spawnedSpecialThisRow = true;
       this.acquireObstacle(lane, kind, zPos);
     }
 
+    // Place the Jump/Slide Action Gate obstacle inside the reachable lane (100% fair, high-skill)
+    if (actionGateKind) {
+      this.acquireObstacle(openLane, actionGateKind, zPos);
+      extraSpacing += isHard ? 2.5 : 4.0;
+    }
+
+    // On Hard (normal road, non-action-gate rows), weave in staggered rhythmic slalom follow-ups!
+    // Spawns an offset obstacle behind this row in an adjacent lane for rapid zig-zag flow.
+    if (isHard && !this.slideMode && !actionGateKind && Math.random() < 0.36) {
+      const staggerOffset = THREE.MathUtils.clamp(speed * 0.28, 12, 17.5);
+      const staggerZ = zPos - staggerOffset;
+      const nextSafeChoices = [0, 1, 2].filter((l) => l !== openLane && Math.abs(l - openLane) === 1);
+      const staggerOpen =
+        nextSafeChoices[Math.floor(Math.random() * nextSafeChoices.length)] ?? (openLane === 1 ? 0 : 1);
+      this.lastOpenLane = staggerOpen;
+
+      const staggerBlocked = [0, 1, 2].filter((l) => l !== staggerOpen);
+      // Block the player's just-used lane (and 55% of the time the 3rd lane too) for an authentic slalom!
+      const staggerCount = Math.random() < 0.55 ? 2 : 1;
+      // Ensure openLane is first in staggerBlocked so the player MUST weave out of it
+      staggerBlocked.sort((a, b) => (a === openLane ? -1 : b === openLane ? 1 : 0));
+      for (let j = 0; j < staggerCount; j++) {
+        const sLane = staggerBlocked[j];
+        const sKind: ObstacleKind =
+          Math.random() < 0.48 ? 'special' : Math.random() < 0.55 ? 'overhead' : 'crate';
+        this.acquireObstacle(sLane, sKind, staggerZ);
+      }
+      extraSpacing += staggerOffset;
+    }
+
+    this.lastRowHadSpecial = spawnedSpecialThisRow;
+
+    // Coin lines telegraph the exact fair path (high arc over jump gate, low line under overhead gate!)
     const coinLane = openLane;
     if (starActive) {
-      // High sky coin arcs + occasional low swoop coins during Star flight!
       const isSwoopRow = Math.random() < 0.32;
       const baseH = isSwoopRow ? STAR_FLY_HEIGHT - 1.9 : STAR_FLY_HEIGHT + 0.5;
       for (let i = 0; i < 6; i++) {
         const arc = Math.sin((i / 5) * Math.PI) * 0.7;
-        this.acquireCoin(coinLane, baseH + arc, zPos - 7 + i * 2.5);
+        this.acquireCoin(coinLane, baseH + arc, zPos - 7 + i * 2.7);
+      }
+    } else if (isSpaceFloat) {
+      for (let i = 0; i < 6; i++) {
+        const wave = Math.sin((i / 5) * Math.PI) * 0.45;
+        this.acquireCoin(coinLane, 2.55 + wave, zPos - 7 + i * 2.8);
+      }
+    } else if (actionGateKind === 'crate') {
+      // High coin arc clearly signaling JUMP over the gate!
+      const arcHeights = [1.35, 2.55, 2.95, 2.55, 1.35];
+      for (let i = 0; i < 5; i++) {
+        this.acquireCoin(coinLane, arcHeights[i], zPos - 4.4 + i * 2.2);
+      }
+    } else if (actionGateKind === 'overhead') {
+      // Low ground coin trail clearly signaling SLIDE under the overhead beam!
+      for (let i = 0; i < 5; i++) {
+        this.acquireCoin(coinLane, 0.58, zPos - 5.2 + i * 2.6);
       }
     } else {
       for (let i = 0; i < 5; i++) {
-        this.acquireCoin(coinLane, 1.05, zPos - 6 + i * 2.6);
+        this.acquireCoin(coinLane, this.slideMode ? 0.95 : 1.05, zPos - 6 + i * 2.7);
       }
 
       const crateLane = otherLanes[0];
-      if (Math.random() < 0.45) {
+      if (!this.slideMode && Math.random() < 0.4) {
         const obs = this.obstacles.find((o) => o.active && o.z === zPos && o.lane === crateLane);
         if (obs && obs.kind === 'crate') {
           const arcHeights = [1.4, 2.55, 2.9, 2.55, 1.4];
@@ -1146,11 +1312,14 @@ export class EntityPoolManager {
     }
 
     this.rowsSincePowerup++;
-    if (this.rowsSincePowerup >= 7 && Math.random() < 0.48) {
+    const powerupThreshold = isHard ? 9 : 7;
+    if (this.rowsSincePowerup >= powerupThreshold && Math.random() < 0.46) {
       this.rowsSincePowerup = 0;
       const puKind: PowerupKind = Math.random() < 0.54 ? 'sword' : 'star';
-      this.acquirePowerup(openLane, puKind, zPos - 10.5);
+      this.acquirePowerup(this.lastOpenLane, puKind, zPos - (extraSpacing > 8 ? 17.5 : 11.5));
     }
+
+    return extraSpacing;
   }
 
   private acquireObstacle(lane: number, kind: ObstacleKind, z: number): void {

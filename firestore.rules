@@ -1,0 +1,170 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable hardened security primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedEmail() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedEmail() && request.auth.uid == userId;
+    }
+
+    function isBoundedStringList(arr, maxLen) {
+      return arr is list && arr.size() <= maxLen && (arr.size() == 0 || arr[0] is string);
+    }
+
+    function isValidUpgradesMap(m) {
+      return m is map
+        && m.keys().hasOnly(['magnet', 'sword', 'star', 'shield', 'yield'])
+        && m.keys().hasAll(['magnet', 'sword', 'star', 'shield', 'yield'])
+        && m.magnet is int && m.magnet >= 0 && m.magnet <= 5
+        && m.sword is int && m.sword >= 0 && m.sword <= 5
+        && m.star is int && m.star >= 0 && m.star <= 5
+        && m.shield is int && m.shield >= 0 && m.shield <= 5
+        && m.yield is int && m.yield >= 0 && m.yield <= 5;
+    }
+
+    function isValidBoostersMap(m) {
+      return m is map
+        && m.keys().hasOnly(['headstart', 'starter_sword', 'extra_shield', 'double_coins'])
+        && m.keys().hasAll(['headstart', 'starter_sword', 'extra_shield', 'double_coins'])
+        && m.headstart is int && m.headstart >= 0 && m.headstart <= 9
+        && m.starter_sword is int && m.starter_sword >= 0 && m.starter_sword <= 9
+        && m.extra_shield is int && m.extra_shield >= 0 && m.extra_shield <= 9
+        && m.double_coins is int && m.double_coins >= 0 && m.double_coins <= 9;
+    }
+
+    function isValidUserProfile(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() <= 80
+        && data.email is string && data.email.size() <= 160
+        && data.photoURL is string && data.photoURL.size() <= 500
+        && data.suiIdentifier is string && data.suiIdentifier.size() <= 100
+        && data.network is string && data.network.size() <= 16
+        && data.network in ['testnet', 'mainnet']
+        && data.lifetimeCoins is int && data.lifetimeCoins >= 0
+        && data.coinBalance is int && data.coinBalance >= 0
+        && data.highScore is int && data.highScore >= 0
+        && data.bestDistance is int && data.bestDistance >= 0
+        && data.selectedCharacter is string && data.selectedCharacter.size() <= 32
+        && data.selectedCharacter in ['og_lofi', 'inferno_blaze', 'neon_slime', 'half_cyborg', 'void_shadow']
+        && isBoundedStringList(data.unlockedCharacters, 10)
+        && isValidUpgradesMap(data.upgrades)
+        && isValidBoostersMap(data.boosters)
+        && isBoundedStringList(data.equippedBoosters, 10)
+        && data.claimedCoins is int && data.claimedCoins >= 0
+        && data.onChainBestScore is int && data.onChainBestScore >= 0
+        && isBoundedStringList(data.mintedYetiIds, 10)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidReceipt(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid == request.auth.uid
+        && data.kind is string && data.kind.size() <= 32
+        && data.kind in ['claim_coins', 'mint_yeti', 'submit_score']
+        && data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 160
+        && data.suiIdentifier is string && data.suiIdentifier.size() >= 1 && data.suiIdentifier.size() <= 100
+        && data.network is string && data.network.size() <= 16
+        && data.network in ['testnet', 'mainnet']
+        && data.digest is string && data.digest.size() >= 16 && data.digest.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    // Owner-only player profile & cloud save (PII strictly isolated)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && incoming().keys().hasAll([
+          'uid', 'displayName', 'email', 'photoURL', 'suiIdentifier', 'network',
+          'lifetimeCoins', 'coinBalance', 'highScore', 'bestDistance',
+          'selectedCharacter', 'unlockedCharacters', 'upgrades', 'boosters',
+          'equippedBoosters', 'claimedCoins', 'onChainBestScore', 'mintedYetiIds',
+          'createdAt', 'updatedAt'
+        ])
+        && incoming().keys().hasOnly([
+          'uid', 'displayName', 'email', 'photoURL', 'suiIdentifier', 'network',
+          'lifetimeCoins', 'coinBalance', 'highScore', 'bestDistance',
+          'selectedCharacter', 'unlockedCharacters', 'upgrades', 'boosters',
+          'equippedBoosters', 'claimedCoins', 'onChainBestScore', 'mintedYetiIds',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidUserProfile(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Update optional Sui wallet address / .sui name or preferred network
+          incoming().diff(existing()).affectedKeys().hasOnly(['suiIdentifier', 'network', 'updatedAt'])
+          ||
+          // Action 2: Sync game run progress, store upgrades/boosters, or claim/mint milestones
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName', 'email', 'photoURL', 'suiIdentifier', 'network',
+            'lifetimeCoins', 'coinBalance', 'highScore', 'bestDistance',
+            'selectedCharacter', 'unlockedCharacters', 'upgrades', 'boosters',
+            'equippedBoosters', 'claimedCoins', 'onChainBestScore', 'mintedYetiIds',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isValidId(userId) && isOwner(userId);
+
+      // Master-Gated immutable on-chain receipts subcollection
+      match /receipts/{receiptId} {
+        allow get: if isValidId(userId) && isValidId(receiptId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.uid == request.auth.uid;
+
+        allow create: if isValidId(userId)
+          && isValidId(receiptId)
+          && isOwner(userId)
+          && incoming().keys().hasAll([
+            'uid', 'kind', 'summary', 'suiIdentifier', 'network', 'digest', 'createdAt'
+          ])
+          && incoming().keys().hasOnly([
+            'uid', 'kind', 'summary', 'suiIdentifier', 'network', 'digest', 'createdAt'
+          ])
+          && isValidReceipt(incoming())
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow update, delete: if false;
+      }
+    }
+  }
+}

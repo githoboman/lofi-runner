@@ -10,13 +10,34 @@ import {
   RotateCcw,
   Settings,
   Shield,
+  ShoppingBag,
   Sparkles,
   Sword,
   Trophy,
   User,
   Volume2,
   VolumeX,
+  Wallet,
 } from 'lucide-react';
+import {
+  createAccountOnChainReceipt,
+  fetchSuiBalanceMist,
+  formatMistToSui,
+  formatSuiIdentifier,
+} from './blockchain/walletService';
+import { StoreOverlay } from './components/StoreOverlay';
+import { Web3HubOverlay } from './components/Web3HubOverlay';
+import {
+  loadAndMergeCloudProfile,
+  recordCloudReceipt,
+  signInWithGoogle,
+  signOutGoogle,
+  subscribeToAuth,
+  syncCloudProfile,
+  toGoogleAccountProfile,
+  type GoogleAccountProfile,
+} from './firebase';
+import type { User as FirebaseUser } from 'firebase/auth';
 import {
   CHARACTERS,
   DIFFICULTIES,
@@ -24,18 +45,29 @@ import {
   SCENE_ORDER,
   SCENE_SHORT_NAMES,
   STAR_DURATION,
+  STORE_BOOSTERS,
+  STORE_UPGRADES,
   SWORD_DURATION,
   getCharacterById,
+  getUpgradeCost,
 } from './game/config';
 import { RunnerEngine } from './game/engine';
-import { loadSaveData, resetSaveData, writeSaveData } from './game/storage';
+import {
+  isCharacterUnlocked,
+  loadSaveData,
+  resetSaveData,
+  writeSaveData,
+} from './game/storage';
 import type {
+  BoosterId,
   CharacterId,
   DifficultyId,
   GameScreen,
   HudSnapshot,
   SaveData,
   SceneId,
+  SuiNetworkId,
+  UpgradeId,
 } from './game/types';
 
 const INITIAL_HUD: HudSnapshot = {
@@ -118,19 +150,78 @@ export default function App() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [contextLost, setContextLost] = useState(false);
 
+  // Google Account & Cloud Sync state (no forced wallet connections!)
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [account, setAccount] = useState<GoogleAccountProfile | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [suiBalanceFormatted, setSuiBalanceFormatted] = useState<string | null>(null);
+  const [web3Busy, setWeb3Busy] = useState<string | null>(null);
+  const [web3Status, setWeb3Status] = useState<string | null>(null);
+
   const saveRef = useRef(save);
   saveRef.current = save;
 
   const screenRef = useRef(screen);
   screenRef.current = screen;
 
+  const firebaseUserRef = useRef<FirebaseUser | null>(null);
+  firebaseUserRef.current = firebaseUser;
+
   const updateSave = useCallback((updater: (prev: SaveData) => SaveData) => {
     setSave((prev) => {
       const next = updater(prev);
       writeSaveData(next);
+      const user = firebaseUserRef.current;
+      if (user) {
+        syncCloudProfile(user, next).catch(() => {
+          // Handled via handleFirestoreError logs; keep local save intact
+        });
+      }
       return next;
     });
   }, []);
+
+  // Subscribe to Firebase Google Auth state across desktop & mobile sessions
+  useEffect(() => {
+    const unsubscribe = subscribeToAuth((user) => {
+      setFirebaseUser(user);
+      setAccount(user ? toGoogleAccountProfile(user) : null);
+      setAuthReady(true);
+
+      if (user) {
+        loadAndMergeCloudProfile(user, saveRef.current)
+          .then((merged) => {
+            writeSaveData(merged);
+            setSave(merged);
+            engineRef.current?.setCharacter(merged.selectedCharacter, false);
+          })
+          .catch(() => {
+            // Keep local save if offline
+          });
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // Refresh optional Sui balance whenever the user has saved a Sui address or .sui name
+  useEffect(() => {
+    const suiId = save.blockchain.suiIdentifier.trim();
+    if (!suiId) {
+      setSuiBalanceFormatted(null);
+      return;
+    }
+    let active = true;
+    fetchSuiBalanceMist(save.blockchain.network, suiId)
+      .then((mist) => {
+        if (active) setSuiBalanceFormatted(formatMistToSui(mist));
+      })
+      .catch(() => {
+        if (active) setSuiBalanceFormatted(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [save.blockchain.suiIdentifier, save.blockchain.network]);
 
   // Mount WebGL RunnerEngine once
   useEffect(() => {
@@ -152,12 +243,21 @@ export default function App() {
           const isNewBest = result.score > prev.highScore;
           setLastRun({ ...result, isNewBest });
           setScreen('gameover');
-          updateSave((cur) => ({
-            ...cur,
-            lifetimeCoins: cur.lifetimeCoins + result.runCoins,
-            highScore: Math.max(cur.highScore, result.score),
-            bestDistance: Math.max(cur.bestDistance, result.distance),
-          }));
+          updateSave((cur) => {
+            const nextLifetime = cur.lifetimeCoins + result.runCoins;
+            const nextUnlocked = new Set<CharacterId>(cur.unlockedCharacters);
+            for (const c of CHARACTERS) {
+              if (nextLifetime >= c.unlockCoins) nextUnlocked.add(c.id);
+            }
+            return {
+              ...cur,
+              lifetimeCoins: nextLifetime,
+              coinBalance: cur.coinBalance + result.runCoins,
+              unlockedCharacters: Array.from(nextUnlocked),
+              highScore: Math.max(cur.highScore, result.score),
+              bestDistance: Math.max(cur.bestDistance, result.distance),
+            };
+          });
         },
         onPauseRequest: () => {
           if (screenRef.current === 'playing') {
@@ -186,10 +286,34 @@ export default function App() {
     const engine = engineRef.current;
     if (!engine) return;
     setConfirmReset(false);
-    engine.setCharacter(saveRef.current.selectedCharacter, false);
+
+    const cur = saveRef.current;
+    const activeBoosters = cur.equippedBoosters.filter((id) => (cur.boosters[id] ?? 0) > 0);
+    engine.setLoadout({
+      upgrades: cur.upgrades,
+      activeBoosters,
+    });
+
+    // Consume 1 charge of each armed booster for this run
+    if (activeBoosters.length > 0) {
+      updateSave((prev) => {
+        const nextBoosters = { ...prev.boosters };
+        for (const id of activeBoosters) {
+          nextBoosters[id] = Math.max(0, (nextBoosters[id] ?? 0) - 1);
+        }
+        const nextEquipped = prev.equippedBoosters.filter((id) => (nextBoosters[id] ?? 0) > 0);
+        return {
+          ...prev,
+          boosters: nextBoosters,
+          equippedBoosters: nextEquipped,
+        };
+      });
+    }
+
+    engine.setCharacter(cur.selectedCharacter, false);
     setScreen('playing');
     engine.startRun();
-  }, []);
+  }, [updateSave]);
 
   const handleGoMenu = useCallback(() => {
     const engine = engineRef.current;
@@ -219,6 +343,27 @@ export default function App() {
     }
   }, []);
 
+  const handleOpenStore = useCallback(() => {
+    const engine = engineRef.current;
+    setConfirmReset(false);
+    setScreen('store');
+    if (engine) {
+      engine.audio.play('uiClick');
+      engine.setScreen('store');
+    }
+  }, []);
+
+  const handleOpenWeb3 = useCallback(() => {
+    const engine = engineRef.current;
+    setConfirmReset(false);
+    setWeb3Status(null);
+    setScreen('web3');
+    if (engine) {
+      engine.audio.play('uiClick');
+      engine.setScreen('web3');
+    }
+  }, []);
+
   const handleOpenSettings = useCallback(() => {
     const engine = engineRef.current;
     setConfirmReset(false);
@@ -228,6 +373,321 @@ export default function App() {
       engine.setScreen('settings');
     }
   }, []);
+
+  // Store purchase & loadout handlers
+  const handleBuyUpgrade = useCallback(
+    (upgradeId: UpgradeId) => {
+      const cfg = STORE_UPGRADES.find((u) => u.id === upgradeId);
+      if (!cfg) return;
+      const cur = saveRef.current;
+      const level = cur.upgrades[upgradeId] ?? 0;
+      if (level >= cfg.maxLevel) return;
+      const cost = getUpgradeCost(cfg, level);
+      if (cur.coinBalance < cost) return;
+      engineRef.current?.audio.play('coin');
+      updateSave((prev) => ({
+        ...prev,
+        coinBalance: prev.coinBalance - cost,
+        upgrades: { ...prev.upgrades, [upgradeId]: level + 1 },
+      }));
+    },
+    [updateSave],
+  );
+
+  const handleBuyBooster = useCallback(
+    (boosterId: BoosterId) => {
+      const cfg = STORE_BOOSTERS.find((b) => b.id === boosterId);
+      if (!cfg) return;
+      const cur = saveRef.current;
+      const owned = cur.boosters[boosterId] ?? 0;
+      if (owned >= cfg.maxStack || cur.coinBalance < cfg.cost) return;
+      engineRef.current?.audio.play('coin');
+      updateSave((prev) => {
+        const nextOwned = (prev.boosters[boosterId] ?? 0) + 1;
+        const nextEquipped = prev.equippedBoosters.includes(boosterId)
+          ? prev.equippedBoosters
+          : [...prev.equippedBoosters, boosterId];
+        return {
+          ...prev,
+          coinBalance: prev.coinBalance - cfg.cost,
+          boosters: { ...prev.boosters, [boosterId]: nextOwned },
+          equippedBoosters: nextEquipped,
+        };
+      });
+    },
+    [updateSave],
+  );
+
+  const handleToggleBooster = useCallback(
+    (boosterId: BoosterId) => {
+      const cur = saveRef.current;
+      if ((cur.boosters[boosterId] ?? 0) <= 0) return;
+      engineRef.current?.audio.play('uiClick');
+      updateSave((prev) => {
+        const armed = prev.equippedBoosters.includes(boosterId);
+        return {
+          ...prev,
+          equippedBoosters: armed
+            ? prev.equippedBoosters.filter((id) => id !== boosterId)
+            : [...prev.equippedBoosters, boosterId],
+        };
+      });
+    },
+    [updateSave],
+  );
+
+  const handleUnlockCharacterInStore = useCallback(
+    (charId: CharacterId) => {
+      const cfg = getCharacterById(charId);
+      const cur = saveRef.current;
+      if (isCharacterUnlocked(cur, charId) || cur.coinBalance < cfg.unlockCoins) return;
+      engineRef.current?.audio.play('star');
+      engineRef.current?.setCharacter(charId, true);
+      engineRef.current?.previewScene(cfg.homeWorldId);
+      setPreviewCharId(charId);
+      setPreviewSceneId(cfg.homeWorldId);
+      updateSave((prev) => ({
+        ...prev,
+        coinBalance: prev.coinBalance - cfg.unlockCoins,
+        selectedCharacter: charId,
+        unlockedCharacters: Array.from(new Set([...prev.unlockedCharacters, charId])),
+      }));
+    },
+    [updateSave],
+  );
+
+  const handleEquipCharacterFromStore = useCallback(
+    (charId: CharacterId) => {
+      const cfg = getCharacterById(charId);
+      engineRef.current?.audio.play('uiClick');
+      engineRef.current?.setCharacter(charId, true);
+      engineRef.current?.previewScene(cfg.homeWorldId);
+      setPreviewCharId(charId);
+      setPreviewSceneId(cfg.homeWorldId);
+      updateSave((prev) => ({ ...prev, selectedCharacter: charId }));
+    },
+    [updateSave],
+  );
+
+  // Google Sign-In & On-Demand Sui Rewards handlers
+  const handleSignInGoogle = useCallback(async () => {
+    setWeb3Busy('google_auth');
+    setWeb3Status(null);
+    try {
+      const user = await signInWithGoogle();
+      setWeb3Status(`Signed in as ${user.displayName || user.email || 'Google Player'}. Progress synced.`);
+      engineRef.current?.audio.play('uiClick');
+    } catch (err) {
+      const code = (err as { code?: string })?.code ?? '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        setWeb3Status('Google sign-in canceled. Tap "Sign in with Google" whenever you are ready.');
+      } else if (code === 'auth/popup-blocked') {
+        setWeb3Status('Pop-up was blocked by your browser. Please allow pop-ups and tap Sign in with Google again.');
+      } else {
+        setWeb3Status(err instanceof Error ? err.message : 'Unable to sign in with Google right now.');
+      }
+    } finally {
+      setWeb3Busy(null);
+    }
+  }, []);
+
+  const handleSignOutGoogle = useCallback(async () => {
+    setWeb3Busy('google_auth');
+    try {
+      await signOutGoogle();
+      setWeb3Status('Signed out of Google. Local progress remains saved on this device.');
+      engineRef.current?.audio.play('uiClick');
+    } finally {
+      setWeb3Busy(null);
+    }
+  }, []);
+
+  const handleSwitchNetwork = useCallback(
+    (network: SuiNetworkId) => {
+      engineRef.current?.audio.play('uiClick');
+      setWeb3Status(null);
+      updateSave((prev) => ({
+        ...prev,
+        blockchain: { ...prev.blockchain, network },
+      }));
+    },
+    [updateSave],
+  );
+
+  const handleSaveSuiIdentifier = useCallback(
+    async (identifier: string) => {
+      const clean = identifier.trim().slice(0, 100);
+      engineRef.current?.audio.play('uiClick');
+      updateSave((prev) => ({
+        ...prev,
+        blockchain: { ...prev.blockchain, suiIdentifier: clean },
+      }));
+      setWeb3Status(`Saved reward destination: ${formatSuiIdentifier(clean)}.`);
+    },
+    [updateSave],
+  );
+
+  const handleRefreshBalance = useCallback(async () => {
+    const suiId = saveRef.current.blockchain.suiIdentifier.trim();
+    if (!suiId) return;
+    engineRef.current?.audio.play('uiClick');
+    const mist = await fetchSuiBalanceMist(saveRef.current.blockchain.network, suiId);
+    setSuiBalanceFormatted(formatMistToSui(mist));
+  }, []);
+
+  const handleClaimCoins = useCallback(
+    async (overrideIdentifier?: string) => {
+      const user = firebaseUserRef.current;
+      if (!user) return;
+      const cur = saveRef.current;
+      const suiId = (overrideIdentifier ?? cur.blockchain.suiIdentifier).trim();
+      if (!suiId) return;
+      const claimable = Math.max(0, cur.lifetimeCoins - cur.blockchain.claimedCoins);
+      if (claimable <= 0) return;
+
+      setWeb3Busy('claim_coins');
+      setWeb3Status(null);
+      try {
+        const { receipt } = await createAccountOnChainReceipt({
+          accountUid: user.uid,
+          suiIdentifier: suiId,
+          network: cur.blockchain.network,
+          kind: 'claim_coins',
+          summary: `Claimed ${claimable.toLocaleString()} SUI Runner Coins`,
+          payload: { amount: claimable },
+        });
+        const nextSave: SaveData = {
+          ...cur,
+          blockchain: {
+            ...cur.blockchain,
+            suiIdentifier: suiId,
+            claimedCoins: cur.blockchain.claimedCoins + claimable,
+            receipts: [receipt, ...cur.blockchain.receipts].slice(0, 20),
+          },
+        };
+        writeSaveData(nextSave);
+        setSave(nextSave);
+        await recordCloudReceipt(user, nextSave, receipt, suiId);
+        setWeb3Status(
+          `Claimed ${claimable.toLocaleString()} SUI Runner Coins for ${formatSuiIdentifier(suiId)}.`,
+        );
+        engineRef.current?.audio.play('coin');
+      } catch (err) {
+        setWeb3Status(err instanceof Error ? err.message : 'Unable to record reward claim.');
+      } finally {
+        setWeb3Busy(null);
+      }
+    },
+    [],
+  );
+
+  const handleSubmitScore = useCallback(
+    async (overrideIdentifier?: string) => {
+      const user = firebaseUserRef.current;
+      if (!user) return;
+      const cur = saveRef.current;
+      const suiId = (overrideIdentifier ?? cur.blockchain.suiIdentifier).trim();
+      if (!suiId) return;
+      if (cur.highScore <= 0 || cur.highScore <= cur.blockchain.onChainBestScore) return;
+
+      setWeb3Busy('submit_score');
+      setWeb3Status(null);
+      try {
+        const { receipt } = await createAccountOnChainReceipt({
+          accountUid: user.uid,
+          suiIdentifier: suiId,
+          network: cur.blockchain.network,
+          kind: 'submit_score',
+          summary: `Verified High Score ${cur.highScore.toLocaleString()} (${cur.bestDistance}m)`,
+          payload: {
+            score: cur.highScore,
+            distance: cur.bestDistance,
+            characterId: cur.selectedCharacter,
+          },
+        });
+        const nextSave: SaveData = {
+          ...cur,
+          blockchain: {
+            ...cur.blockchain,
+            suiIdentifier: suiId,
+            onChainBestScore: Math.max(cur.blockchain.onChainBestScore, cur.highScore),
+            receipts: [receipt, ...cur.blockchain.receipts].slice(0, 20),
+          },
+        };
+        writeSaveData(nextSave);
+        setSave(nextSave);
+        await recordCloudReceipt(user, nextSave, receipt, suiId);
+        setWeb3Status(
+          `Verified high score ${cur.highScore.toLocaleString()} for ${formatSuiIdentifier(suiId)}.`,
+        );
+        engineRef.current?.audio.play('star');
+      } catch (err) {
+        setWeb3Status(err instanceof Error ? err.message : 'Unable to submit score right now.');
+      } finally {
+        setWeb3Busy(null);
+      }
+    },
+    [],
+  );
+
+  const handleMintYetiNft = useCallback(
+    async (charId: CharacterId, overrideIdentifier?: string) => {
+      const user = firebaseUserRef.current;
+      if (!user) return;
+      const cur = saveRef.current;
+      const suiId = (overrideIdentifier ?? cur.blockchain.suiIdentifier).trim();
+      if (!suiId) return;
+      if (!isCharacterUnlocked(cur, charId) || cur.blockchain.mintedNfts[charId]) return;
+
+      const cfg = getCharacterById(charId);
+      setWeb3Busy(`mint_${charId}`);
+      setWeb3Status(null);
+      try {
+        const { receipt, objectId } = await createAccountOnChainReceipt({
+          accountUid: user.uid,
+          suiIdentifier: suiId,
+          network: cur.blockchain.network,
+          kind: 'mint_yeti',
+          summary: `Minted ${cfg.name} Yeti NFT`,
+          payload: {
+            characterId: cfg.id,
+            name: cfg.name,
+            tier: cfg.tier,
+            homeWorld: cfg.homeWorldId,
+          },
+        });
+        const nextSave: SaveData = {
+          ...cur,
+          unlockedCharacters: Array.from(new Set([...cur.unlockedCharacters, charId])),
+          blockchain: {
+            ...cur.blockchain,
+            suiIdentifier: suiId,
+            mintedNfts: {
+              ...cur.blockchain.mintedNfts,
+              [charId]: {
+                characterId: charId,
+                objectId: objectId ?? receipt.digest,
+                network: cur.blockchain.network,
+                mintedAt: receipt.timestamp,
+                digest: receipt.digest,
+              },
+            },
+            receipts: [receipt, ...cur.blockchain.receipts].slice(0, 20),
+          },
+        };
+        writeSaveData(nextSave);
+        setSave(nextSave);
+        await recordCloudReceipt(user, nextSave, receipt, suiId);
+        setWeb3Status(`Minted ${cfg.name} Yeti NFT for ${formatSuiIdentifier(suiId)}.`);
+        engineRef.current?.audio.play('portalWarp');
+      } catch (err) {
+        setWeb3Status(err instanceof Error ? err.message : 'Unable to mint Yeti NFT right now.');
+      } finally {
+        setWeb3Busy(null);
+      }
+    },
+    [],
+  );
 
   const handleTogglePause = useCallback(() => {
     const engine = engineRef.current;
@@ -324,7 +784,12 @@ export default function App() {
           e.preventDefault();
           handleGoMenu();
         }
-      } else if (screen === 'character' || screen === 'settings') {
+      } else if (
+        screen === 'character' ||
+        screen === 'store' ||
+        screen === 'web3' ||
+        screen === 'settings'
+      ) {
         if (e.code === 'Escape') {
           e.preventDefault();
           handleGoMenu();
@@ -389,53 +854,94 @@ export default function App() {
                   <span aria-hidden="true">·</span>
                   <span>Best {save.highScore.toLocaleString()}</span>
                   <span aria-hidden="true">·</span>
-                  <span>{save.lifetimeCoins.toLocaleString()} SUI Coins</span>
+                  <span className="text-amber-300 font-semibold">
+                    {save.coinBalance.toLocaleString()} SUI Coins
+                  </span>
                   <span aria-hidden="true">·</span>
                   <span>{DIFFICULTIES[save.settings.difficulty].label}</span>
                 </div>
               </div>
             </div>
 
-            {/* 5 Yeti Worlds Preview Selector */}
-            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-white/12 bg-[#0c1220]/90 p-1">
-              {SCENE_ORDER.map((sid) => {
-                const active = previewSceneId === sid;
-                return (
-                  <button
-                    key={sid}
-                    type="button"
-                    onClick={() => handleScenePreview(sid)}
-                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                      active
-                        ? 'bg-sky-400 text-slate-950 font-semibold'
-                        : 'text-slate-300 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    <span className="lg:hidden">{SCENE_SHORT_NAMES[sid]}</span>
-                    <span className="hidden lg:inline">{SCENE_NAMES[sid]}</span>
-                  </button>
-                );
-              })}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Google Account Sign-In / Account Trigger (works seamlessly on desktop & mobile) */}
+              {account ? (
+                <button
+                  type="button"
+                  onClick={handleOpenWeb3}
+                  className="flex items-center gap-2 rounded-lg border border-sky-400/45 bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-100 hover:bg-sky-500/25 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  {account.photoURL ? (
+                    <img
+                      src={account.photoURL}
+                      alt={account.displayName}
+                      referrerPolicy="no-referrer"
+                      className="h-5 w-5 rounded-full object-cover border border-white/20"
+                    />
+                  ) : (
+                    <User className="h-3.5 w-3.5 text-sky-300" />
+                  )}
+                  <span className="max-w-[110px] truncate">{account.displayName}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!authReady || web3Busy !== null}
+                  onClick={handleSignInGoogle}
+                  className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <User className="h-3.5 w-3.5 text-sky-600" />
+                  {web3Busy === 'google_auth' ? 'Signing in...' : 'Sign in with Google'}
+                </button>
+              )}
+
+              {/* 5 Yeti Worlds Preview Selector */}
+              <div className="flex flex-wrap items-center gap-1 rounded-lg border border-white/12 bg-[#0c1220]/90 p-1">
+                {SCENE_ORDER.map((sid) => {
+                  const active = previewSceneId === sid;
+                  return (
+                    <button
+                      key={sid}
+                      type="button"
+                      onClick={() => handleScenePreview(sid)}
+                      className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                        active
+                          ? 'bg-sky-400 text-slate-950 font-semibold'
+                          : 'text-slate-300 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      <span className="lg:hidden">{SCENE_SHORT_NAMES[sid]}</span>
+                      <span className="hidden lg:inline">{SCENE_NAMES[sid]}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </header>
 
           {/* Bottom Unified Action Dock */}
-          <footer className="pointer-events-auto mx-auto w-full max-w-xl">
+          <footer className="pointer-events-auto mx-auto w-full max-w-2xl">
             <div className="rounded-2xl border border-white/12 bg-[#0c1220]/90 p-3 sm:p-4 shadow-2xl">
-              <div className="mb-2.5 flex items-center justify-between text-xs text-slate-300 px-1">
-                <span>
+              <div className="mb-2.5 flex items-center justify-between text-xs text-slate-300 px-1 gap-2">
+                <span className="truncate">
                   Active Perk: <strong className="text-white">{equippedChar.perkName}</strong>
+                  {save.equippedBoosters.length > 0 && (
+                    <span className="ml-2 text-amber-300 font-semibold">
+                      · {save.equippedBoosters.length} Booster
+                      {save.equippedBoosters.length > 1 ? 's' : ''} Armed
+                    </span>
+                  )}
                 </span>
-                <span className="text-slate-400 hidden sm:inline truncate max-w-[60%]">
+                <span className="text-slate-400 hidden sm:inline truncate max-w-[52%]">
                   {equippedChar.perkDescription}
                 </span>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={handleStartGame}
-                  className="flex-1 flex items-center justify-center gap-2.5 rounded-xl bg-sky-400 px-6 py-3.5 font-[var(--font-display)] text-base font-bold text-slate-950 transition-transform active:scale-[0.98] hover:bg-sky-300 cursor-pointer whitespace-nowrap"
+                  className="flex-1 min-w-[140px] flex items-center justify-center gap-2 rounded-xl bg-sky-400 px-5 py-3.5 font-[var(--font-display)] text-base font-bold text-slate-950 transition-transform active:scale-[0.98] hover:bg-sky-300 cursor-pointer whitespace-nowrap"
                 >
                   <Play className="h-5 w-5 fill-current" />
                   Play Run
@@ -443,20 +949,38 @@ export default function App() {
 
                 <button
                   type="button"
+                  onClick={handleOpenStore}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-amber-400/35 bg-amber-500/12 px-4 py-3.5 text-sm font-semibold text-amber-200 transition-colors hover:bg-amber-500/20 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <ShoppingBag className="h-4 w-4 text-amber-300" />
+                  Store
+                </button>
+
+                <button
+                  type="button"
                   onClick={handleOpenCharacter}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-white/14 bg-white/5 px-5 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-white/10 cursor-pointer whitespace-nowrap"
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-white/14 bg-white/5 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-white/10 cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <User className="h-4 w-4 text-sky-300" />
-                  Yetis ({CHARACTERS.filter((c) => save.lifetimeCoins >= c.unlockCoins).length}/{CHARACTERS.length})
+                  Yetis ({CHARACTERS.filter((c) => isCharacterUnlocked(save, c.id)).length}/{CHARACTERS.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenWeb3}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-3.5 text-sm font-semibold text-sky-200 transition-colors hover:bg-sky-500/20 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Wallet className="h-4 w-4 text-sky-300" />
+                  Rewards
                 </button>
 
                 <button
                   type="button"
                   onClick={handleOpenSettings}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-white/14 bg-white/5 px-5 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-white/10 cursor-pointer whitespace-nowrap"
+                  aria-label="Settings"
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-white/14 bg-white/5 px-3.5 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-white/10 cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <Settings className="h-4 w-4 text-slate-300" />
-                  Settings
                 </button>
               </div>
 
@@ -489,9 +1013,19 @@ export default function App() {
               Back
             </button>
 
-            <div className="rounded-xl border border-white/12 bg-[#0c1220]/90 px-4 py-2 text-sm font-semibold text-amber-300 tabular-nums flex items-center gap-2">
-              <Coins className="h-4 w-4" />
-              {save.lifetimeCoins.toLocaleString()} SUI Coins
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleOpenStore}
+                className="flex items-center gap-1.5 rounded-xl border border-amber-400/35 bg-[#0c1220]/90 px-3.5 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/15 transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <ShoppingBag className="h-3.5 w-3.5" />
+                Store
+              </button>
+              <div className="rounded-xl border border-white/12 bg-[#0c1220]/90 px-4 py-2 text-sm font-semibold text-amber-300 tabular-nums flex items-center gap-2">
+                <Coins className="h-4 w-4" />
+                {save.coinBalance.toLocaleString()} SUI Coins
+              </div>
             </div>
           </header>
 
@@ -517,11 +1051,11 @@ export default function App() {
               <div className="text-xs tabular-nums shrink-0">
                 {save.selectedCharacter === previewChar.id ? (
                   <span className="font-semibold text-sky-300">Equipped for Next Run</span>
-                ) : save.lifetimeCoins >= previewChar.unlockCoins ? (
+                ) : isCharacterUnlocked(save, previewChar.id) ? (
                   <span className="text-emerald-300 font-semibold">Unlocked</span>
                 ) : (
                   <span className="text-amber-300 font-semibold">
-                    Needs {(previewChar.unlockCoins - save.lifetimeCoins).toLocaleString()} more SUI coins
+                    Needs {Math.max(0, previewChar.unlockCoins - save.lifetimeCoins).toLocaleString()} more SUI coins
                   </span>
                 )}
               </div>
@@ -530,7 +1064,7 @@ export default function App() {
             {/* 5 Character Cards Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
               {CHARACTERS.map((char) => {
-                const unlocked = save.lifetimeCoins >= char.unlockCoins;
+                const unlocked = isCharacterUnlocked(save, char.id);
                 const equipped = save.selectedCharacter === char.id;
                 const previewing = previewCharId === char.id;
 
@@ -579,6 +1113,40 @@ export default function App() {
             </div>
           </section>
         </div>
+      )}
+
+      {/* ==================== IN-GAME STORE ==================== */}
+      {screen === 'store' && (
+        <StoreOverlay
+          save={save}
+          onClose={handleGoMenu}
+          onBuyUpgrade={handleBuyUpgrade}
+          onBuyBooster={handleBuyBooster}
+          onToggleBooster={handleToggleBooster}
+          onUnlockCharacter={handleUnlockCharacterInStore}
+          onEquipCharacter={handleEquipCharacterFromStore}
+        />
+      )}
+
+      {/* ==================== ACCOUNT & SUI REWARDS HUB ==================== */}
+      {screen === 'web3' && (
+        <Web3HubOverlay
+          save={save}
+          account={account}
+          authReady={authReady}
+          suiBalanceFormatted={suiBalanceFormatted}
+          busyAction={web3Busy}
+          statusMessage={web3Status}
+          onClose={handleGoMenu}
+          onSignInGoogle={handleSignInGoogle}
+          onSignOutGoogle={handleSignOutGoogle}
+          onSwitchNetwork={handleSwitchNetwork}
+          onSaveSuiIdentifier={handleSaveSuiIdentifier}
+          onRefreshBalance={handleRefreshBalance}
+          onClaimCoins={handleClaimCoins}
+          onSubmitScore={handleSubmitScore}
+          onMintYetiNft={handleMintYetiNft}
+        />
       )}
 
       {/* ==================== SETTINGS SCREEN ==================== */}
@@ -986,7 +1554,7 @@ export default function App() {
 
             <div className="mt-3 flex items-center justify-between text-xs text-slate-400 tabular-nums px-1">
               <span>Best Score: {save.highScore.toLocaleString()}</span>
-              <span>Total Bank: {save.lifetimeCoins.toLocaleString()} SUI</span>
+              <span>Store Bank: {save.coinBalance.toLocaleString()} SUI</span>
             </div>
 
             <div className="mt-5 flex flex-col gap-2.5">
@@ -998,6 +1566,26 @@ export default function App() {
                 <Play className="h-4 w-4 fill-current" />
                 Play Again
               </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenStore}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-amber-400/35 bg-amber-500/12 py-2.5 text-xs font-semibold text-amber-200 hover:bg-amber-500/20 cursor-pointer whitespace-nowrap"
+                >
+                  <ShoppingBag className="h-3.5 w-3.5" />
+                  Store
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenWeb3}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-sky-400/30 bg-sky-500/10 py-2.5 text-xs font-semibold text-sky-200 hover:bg-sky-500/20 cursor-pointer whitespace-nowrap"
+                >
+                  <Wallet className="h-3.5 w-3.5" />
+                  Claim On-Chain
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={handleGoMenu}

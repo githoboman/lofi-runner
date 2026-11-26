@@ -1,0 +1,190 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated Lofi Yeti Runner player profile, cloud-synced game progress, and optional Sui wallet/SuiNS identifier.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID matching the document ID."
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Player Google display name."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160,
+          "description": "Player Google email (strictly private, owner-only)."
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional Google avatar URL."
+        },
+        "suiIdentifier": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Optional Sui wallet address (0x...) or SuiNS name (name.sui) provided only when needed."
+        },
+        "network": {
+          "type": "string",
+          "enum": ["testnet", "mainnet"],
+          "maxLength": 16,
+          "description": "Preferred Sui network."
+        },
+        "lifetimeCoins": {
+          "type": "number",
+          "description": "Total SUI Runner Coins earned across all runs."
+        },
+        "coinBalance": {
+          "type": "number",
+          "description": "Spendable Store SUI Runner Coins."
+        },
+        "highScore": {
+          "type": "number",
+          "description": "Personal best run score."
+        },
+        "bestDistance": {
+          "type": "number",
+          "description": "Personal best run distance in meters."
+        },
+        "selectedCharacter": {
+          "type": "string",
+          "enum": ["og_lofi", "inferno_blaze", "neon_slime", "half_cyborg", "void_shadow"],
+          "maxLength": 32,
+          "description": "Currently equipped Lofi Yeti character ID."
+        },
+        "unlockedCharacters": {
+          "type": "array",
+          "description": "Bounded list (max 10) of unlocked Yeti character IDs."
+        },
+        "upgrades": {
+          "type": "object",
+          "description": "Permanent 5-level store upgrade levels map."
+        },
+        "boosters": {
+          "type": "object",
+          "description": "Consumable run booster inventory counts map."
+        },
+        "equippedBoosters": {
+          "type": "array",
+          "description": "Bounded list (max 10) of armed run booster IDs."
+        },
+        "claimedCoins": {
+          "type": "number",
+          "description": "Cumulative coins claimed on-chain."
+        },
+        "onChainBestScore": {
+          "type": "number",
+          "description": "Highest score recorded on-chain."
+        },
+        "mintedYetiIds": {
+          "type": "array",
+          "description": "Bounded list (max 10) of minted Yeti character IDs."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "email",
+        "photoURL",
+        "suiIdentifier",
+        "network",
+        "lifetimeCoins",
+        "coinBalance",
+        "highScore",
+        "bestDistance",
+        "selectedCharacter",
+        "unlockedCharacters",
+        "upgrades",
+        "boosters",
+        "equippedBoosters",
+        "claimedCoins",
+        "onChainBestScore",
+        "mintedYetiIds",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "OnChainReceiptRecord": {
+      "title": "OnChainReceiptRecord",
+      "description": "Immutable player receipt for a SUI coin claim, Yeti NFT request, or verified score submission.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner Firebase Auth UID."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["claim_coins", "mint_yeti", "submit_score"],
+          "maxLength": 32,
+          "description": "Type of on-chain action."
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Human-readable action summary."
+        },
+        "suiIdentifier": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Sui wallet address or .sui name associated with this receipt."
+        },
+        "network": {
+          "type": "string",
+          "enum": ["testnet", "mainnet"],
+          "maxLength": 16,
+          "description": "Sui network."
+        },
+        "digest": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Deterministic SHA-256 verification digest."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "kind",
+        "summary",
+        "suiIdentifier",
+        "network",
+        "digest",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-only Google-authenticated player profile, cloud save state, and optional Sui identifier."
+    },
+    "/users/{userId}/receipts/{receiptId}": {
+      "schema": { "$ref": "#/entities/OnChainReceiptRecord" },
+      "description": "Immutable owner-only receipts for coin claims, Yeti NFT mints, and verified score submissions."
+    }
+  }
+}
