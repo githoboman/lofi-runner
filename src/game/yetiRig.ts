@@ -1375,14 +1375,10 @@ export class YetiController {
       this.slashArcSecondary.visible = false;
     }
 
-    this.starAuraGroup.visible = starActive;
-    if (starActive) {
-      const spinBoost = flyBarrelProgress > 0 || flyLoopProgress > 0 ? 2.4 : 1.0;
-      this.starRing1.rotation.x = elapsed * 3.6 * spinBoost;
-      this.starRing1.rotation.y = elapsed * 2.3 * spinBoost;
-      this.starRing2.rotation.y = -elapsed * 4.2 * spinBoost;
-      this.starRing2.rotation.z = elapsed * 2.9 * spinBoost;
-    }
+    // Keep flying silhouette crisp and clear (no glowing star bubble or spinning rings around the Yeti)
+    void flyBarrelProgress;
+    void flyLoopProgress;
+    this.starAuraGroup.visible = false;
 
     if (spinProgress > 0 && spinProgress < 1) {
       this.spinRingMesh.visible = true;

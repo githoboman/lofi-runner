@@ -903,19 +903,19 @@ export class RunnerEngine {
 
     this.yeti.root.position.set(this.playerX, 0, 0);
 
-    // Character-themed sprint & aerial stunt trail sparks
-    this.trailAccum += dt;
-    const isAerialStunt = this.flyBarrelTimer > 0 || this.flyLoopTimer > 0 || this.flySwoopTimer > 0;
-    if (this.trailAccum >= (isAerialStunt ? 0.035 : this.starTimer > 0 ? 0.06 : 0.14)) {
-      this.trailAccum = 0;
-      const swoopOffset = this.flySwoopTimer > 0 ? Math.sin((1 - this.flySwoopTimer / FLY_SWOOP_DURATION) * Math.PI) * -2.0 : 0;
-      this.pools.spawnBurst(
-        this.playerX + (Math.random() - 0.5) * 0.55,
-        Math.max(0.2, this.playerY + swoopOffset + (this.starTimer > 0 ? 0.8 : 0.22)),
-        0.55,
-        this.starTimer > 0 ? 0xfacc15 : charCfg.trailColor,
-        isAerialStunt ? 4 : this.starTimer > 0 ? 3 : 2,
-      );
+    // Subtle ground sprint trail sparks (disabled during Star Flight for crystal-clear aerial visibility)
+    if (this.starTimer <= 0) {
+      this.trailAccum += dt;
+      if (this.trailAccum >= 0.16) {
+        this.trailAccum = 0;
+        this.pools.spawnBurst(
+          this.playerX + (Math.random() - 0.5) * 0.5,
+          Math.max(0.2, this.playerY + 0.22),
+          0.55,
+          charCfg.trailColor,
+          2,
+        );
+      }
     }
 
     const pauseSpawnsForPortal =
@@ -1067,7 +1067,6 @@ export class RunnerEngine {
         this.runCoins++;
         this.score += Math.round(15 * DIFFICULTIES[this.difficultyId].scoreMultiplier);
         this.audio.play('coin');
-        this.pools.spawnBurst(coin.x, coin.y, coin.z, 0xfacc15, 6);
       }
     }
 
@@ -1086,12 +1085,11 @@ export class RunnerEngine {
             charCfg.perks.swordDurationBonus > 0 ? 'Flame Sword Active!' : 'Energy Sword Active!',
           );
           this.audio.play('sword');
-          this.pools.spawnBurst(puX, 1.5, 0, charCfg.slashColor, 16);
+          this.pools.spawnBurst(puX, 1.5, 0, charCfg.slashColor, 14);
         } else {
           this.starTimer = STAR_DURATION;
           this.addBonus(120, 'Star Flight · Stunts Ready!');
           this.audio.play('star');
-          this.pools.spawnBurst(puX, 1.5, 0, 0xfde047, 20);
         }
       }
     }
@@ -1132,9 +1130,10 @@ export class RunnerEngine {
         if (obs.kind === 'crate') {
           hit = this.playerY < 1.25;
         } else if (obs.kind === 'overhead') {
-          hit = playerTopY > 1.36 && this.playerY < 2.25;
+          hit = playerTopY > 1.36 && this.playerY < 2.35;
         } else {
-          hit = this.playerY < 2.35;
+          // Tall world monoliths are unjumpable on foot (must dodge lanes, sword-slice, or Star Fly!)
+          hit = this.playerY < 5.0;
         }
 
         if (hit && this.invulnTimer <= 0) {

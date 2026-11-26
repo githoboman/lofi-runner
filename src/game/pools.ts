@@ -16,8 +16,8 @@ export interface PooledObstacle {
   sliced: boolean;
   sliceTimer: number;
   group: THREE.Group;
-  crateView: THREE.Group;
-  overheadView: THREE.Group;
+  crateViews: Record<SceneId, THREE.Group>;
+  overheadViews: Record<SceneId, THREE.Group>;
   specialViews: Record<SceneId, THREE.Group>;
 }
 
@@ -165,12 +165,13 @@ export class EntityPoolManager {
   private debrisHalves: SlicedHalfDebris[] = [];
   private cutFlashes: CutFlashPlane[] = [];
 
-  // Cached materials for matching cut debris to obstacle type/scene
+  // Cached materials for matching world-themed obstacles & sheared cut debris
   private crateMat: THREE.MeshStandardMaterial;
   private hazardMat: THREE.MeshStandardMaterial;
   private steelMat: THREE.MeshStandardMaterial;
   private magmaMat: THREE.MeshStandardMaterial;
   private slimeVatMat: THREE.MeshStandardMaterial;
+  private cyberUnitMat: THREE.MeshStandardMaterial;
   private galleryPedestalMat: THREE.MeshStandardMaterial;
   private iceBlockMat: THREE.MeshStandardMaterial;
 
@@ -182,45 +183,91 @@ export class EntityPoolManager {
   constructor(scene: THREE.Scene, maxAniso: number) {
     scene.add(this.root);
 
-    // Shared obstacle materials
+    // Shared per-world obstacle materials
     const crateTex = createCrateTexture(maxAniso);
     this.crateMat = new THREE.MeshStandardMaterial({ map: crateTex, roughness: 0.72, metalness: 0.08 });
     const hazardTex = createHazardStripeTexture(maxAniso);
     this.hazardMat = new THREE.MeshStandardMaterial({ map: hazardTex, roughness: 0.45, metalness: 0.2 });
     this.steelMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.35, metalness: 0.78 });
-    const neonBarMat = new THREE.MeshStandardMaterial({
+
+    // Frost Sanctuary materials
+    this.iceBlockMat = new THREE.MeshStandardMaterial({
+      color: 0xbae6fd,
+      emissive: 0x0284c7,
+      emissiveIntensity: 0.24,
+      roughness: 0.16,
+      metalness: 0.18,
+      transparent: true,
+      opacity: 0.92,
+    });
+    const frostSnowCapMat = new THREE.MeshStandardMaterial({
+      color: 0xf0f9ff,
+      roughness: 0.55,
+      metalness: 0.05,
+    });
+    const frostTimberMat = new THREE.MeshStandardMaterial({
+      color: 0x475569,
+      roughness: 0.72,
+      metalness: 0.18,
+    });
+
+    // Inferno Caldera materials (grounded dark volcanic brown basalt + muted amber veins)
+    this.magmaMat = new THREE.MeshStandardMaterial({
+      color: 0x331f17,
+      emissive: 0x9a3412,
+      emissiveIntensity: 0.35,
+      roughness: 0.72,
+      metalness: 0.22,
+    });
+    const forgedIronMat = new THREE.MeshStandardMaterial({
+      color: 0x2c2422,
+      roughness: 0.42,
+      metalness: 0.85,
+    });
+    const emberVeinMat = new THREE.MeshBasicMaterial({ color: 0xc2410c });
+
+    // Slime Catacombs materials
+    this.slimeVatMat = new THREE.MeshStandardMaterial({
+      color: 0x15803d,
+      emissive: 0x22c55e,
+      emissiveIntensity: 0.62,
+      roughness: 0.2,
+      metalness: 0.24,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const sewerMetalMat = new THREE.MeshStandardMaterial({
+      color: 0x1f312b,
+      roughness: 0.52,
+      metalness: 0.68,
+    });
+    const slimeGlowMat = new THREE.MeshBasicMaterial({ color: 0x4ade80 });
+
+    // Cyber Foundry materials
+    const cyberContTex = createContainerTexture('#1e293b', maxAniso);
+    this.cyberUnitMat = new THREE.MeshStandardMaterial({
+      map: cyberContTex,
+      roughness: 0.34,
+      metalness: 0.65,
+    });
+    const cyberCyanMat = new THREE.MeshStandardMaterial({
       color: 0x38bdf8,
       emissive: 0x38bdf8,
-      emissiveIntensity: 1.35,
+      emissiveIntensity: 1.25,
       roughness: 0.2,
     });
-    this.magmaMat = new THREE.MeshStandardMaterial({
-      color: 0x291512,
-      emissive: 0xf97316,
-      emissiveIntensity: 0.85,
-      roughness: 0.45,
-      metalness: 0.25,
+    const cyberMagentaMat = new THREE.MeshStandardMaterial({
+      color: 0xe879f9,
+      emissive: 0xd946ef,
+      emissiveIntensity: 1.1,
+      roughness: 0.2,
     });
-    const lavaGlowMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
-    this.slimeVatMat = new THREE.MeshStandardMaterial({
-      color: 0x16a34a,
-      emissive: 0x22c55e,
-      emissiveIntensity: 0.75,
-      roughness: 0.18,
-      metalness: 0.22,
-      transparent: true,
-      opacity: 0.88,
-    });
-    const harborContTex = createContainerTexture('#2563eb', maxAniso);
-    const cyberUnitMat = new THREE.MeshStandardMaterial({
-      map: harborContTex,
-      roughness: 0.42,
-      metalness: 0.52,
-    });
+
+    // Void Gallery materials
     this.galleryPedestalMat = new THREE.MeshStandardMaterial({
-      color: 0x18142b,
+      color: 0x161228,
       roughness: 0.16,
-      metalness: 0.55,
+      metalness: 0.58,
     });
     const galleryGoldMat = new THREE.MeshStandardMaterial({
       color: 0xd4af37,
@@ -229,98 +276,264 @@ export class EntityPoolManager {
       emissive: 0x92400e,
       emissiveIntensity: 0.25,
     });
-    this.iceBlockMat = new THREE.MeshStandardMaterial({
-      color: 0x7dd3fc,
-      emissive: 0x0284c7,
-      emissiveIntensity: 0.28,
-      roughness: 0.14,
-      metalness: 0.2,
-      transparent: true,
-      opacity: 0.9,
-    });
+    const voidVioletMat = new THREE.MeshBasicMaterial({ color: 0xa78bfa });
 
-    const crateGeo = new THREE.BoxGeometry(1.85, 1.35, 1.65);
-    const crateCapGeo = new THREE.BoxGeometry(1.94, 0.14, 1.74);
-    const postGeo = new THREE.CylinderGeometry(0.11, 0.13, 2.75, 8);
-    const beamGeo = new THREE.BoxGeometry(2.3, 0.78, 0.55);
+    // Shared obstacle geometries (zero duplicate buffers across pool slots)
+    const crateGeo = new THREE.BoxGeometry(1.86, 1.32, 1.66);
+    const crateCapGeo = new THREE.BoxGeometry(1.96, 0.16, 1.76);
+    const crateBandGeo = new THREE.BoxGeometry(1.94, 0.18, 1.74);
+    const drumGeo = new THREE.CylinderGeometry(0.86, 0.88, 1.32, 12);
+    const drumRingGeo = new THREE.CylinderGeometry(0.92, 0.92, 0.14, 12);
 
-    // Build pooled obstacles
+    const postGeo = new THREE.CylinderGeometry(0.14, 0.17, 2.75, 8);
+    const stonePostGeo = new THREE.BoxGeometry(0.36, 2.75, 0.42);
+    const beamGeo = new THREE.BoxGeometry(2.38, 0.78, 0.56);
+    const pipeBeamGeo = new THREE.CylinderGeometry(0.34, 0.34, 2.4, 10);
+    pipeBeamGeo.rotateZ(Math.PI / 2);
+    const icicleGeo = new THREE.ConeGeometry(0.14, 0.36, 5);
+    icicleGeo.rotateX(Math.PI);
+
+    // Tall unjumpable monolith geometries (~4.75-4.95m tall!)
+    const frostTowerGeo = new THREE.BoxGeometry(1.98, 3.8, 1.92);
+    const frostPeakBigGeo = new THREE.ConeGeometry(0.88, 1.65, 5);
+    const frostPeakSmGeo = new THREE.ConeGeometry(0.62, 1.25, 5);
+
+    const infernoTowerGeo = new THREE.BoxGeometry(1.95, 4.1, 1.9);
+    const infernoCapGeo = new THREE.ConeGeometry(1.12, 1.15, 4);
+    const infernoBandGeo = new THREE.BoxGeometry(2.08, 0.22, 2.02);
+
+    const slimeTankBaseGeo = new THREE.CylinderGeometry(1.02, 1.08, 0.38, 12);
+    const slimeTankGlassGeo = new THREE.CylinderGeometry(0.88, 0.88, 4.15, 12);
+    const slimeTankRingGeo = new THREE.CylinderGeometry(1.0, 1.0, 0.24, 12);
+
+    const cyberTowerGeo = new THREE.BoxGeometry(2.08, 4.75, 2.55);
+    const cyberStripeGeo = new THREE.BoxGeometry(2.16, 0.2, 2.62);
+
+    const voidPillarGeo = new THREE.BoxGeometry(1.86, 4.05, 1.86);
+    const voidTrimGeo = new THREE.BoxGeometry(1.98, 0.16, 1.98);
+    const voidSpireGeo = new THREE.OctahedronGeometry(0.76, 0);
+
+    // Build pooled world-matched obstacles
     for (let i = 0; i < OBSTACLE_POOL_SIZE; i++) {
       const group = new THREE.Group();
       group.visible = false;
 
-      const crateView = new THREE.Group();
-      const crateBody = new THREE.Mesh(crateGeo, this.crateMat);
-      crateBody.position.y = 0.68;
-      crateBody.castShadow = true;
-      const crateTrim = new THREE.Mesh(crateCapGeo, this.steelMat);
-      crateTrim.position.y = 1.38;
-      crateView.add(crateBody, crateTrim);
+      // ===== 1. JUMPABLE LOW BLOCKS ('crate') — bespoke per world =====
+      const frostCrate = new THREE.Group();
+      const fBody = new THREE.Mesh(crateGeo, this.iceBlockMat);
+      fBody.position.y = 0.66;
+      fBody.castShadow = true;
+      const fCap = new THREE.Mesh(crateCapGeo, frostSnowCapMat);
+      fCap.position.y = 1.32;
+      const fIceBand = new THREE.Mesh(crateBandGeo, frostTimberMat);
+      fIceBand.position.y = 0.2;
+      frostCrate.add(fBody, fCap, fIceBand);
 
-      const overheadView = new THREE.Group();
-      const leftPost = new THREE.Mesh(postGeo, this.steelMat);
-      leftPost.position.set(-1.05, 1.38, 0);
-      const rightPost = new THREE.Mesh(postGeo, this.steelMat);
-      rightPost.position.set(1.05, 1.38, 0);
-      const crossBeam = new THREE.Mesh(beamGeo, this.hazardMat);
-      crossBeam.position.set(0, 1.98, 0);
-      crossBeam.castShadow = true;
-      const lightStrip = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.12, 0.6), neonBarMat);
-      lightStrip.position.set(0, 1.56, 0);
-      overheadView.add(leftPost, rightPost, crossBeam, lightStrip);
+      const infernoCrate = new THREE.Group();
+      const iBody = new THREE.Mesh(crateGeo, this.magmaMat);
+      iBody.position.y = 0.66;
+      iBody.castShadow = true;
+      const iCap = new THREE.Mesh(crateCapGeo, forgedIronMat);
+      iCap.position.y = 1.32;
+      const iVein = new THREE.Mesh(crateBandGeo, emberVeinMat);
+      iVein.position.y = 0.68;
+      iVein.scale.y = 0.6;
+      infernoCrate.add(iBody, iCap, iVein);
 
-      // World 1 (OG Lofi): Frost Sanctuary Ice Spires
+      const slimeCrate = new THREE.Group();
+      const sDrum = new THREE.Mesh(drumGeo, sewerMetalMat);
+      sDrum.position.y = 0.66;
+      sDrum.castShadow = true;
+      const sGlow = new THREE.Mesh(drumRingGeo, slimeGlowMat);
+      sGlow.position.y = 0.72;
+      const sCap = new THREE.Mesh(drumRingGeo, this.slimeVatMat);
+      sCap.position.y = 1.32;
+      slimeCrate.add(sDrum, sGlow, sCap);
+
+      const cyberCrate = new THREE.Group();
+      const cBody = new THREE.Mesh(crateGeo, this.cyberUnitMat);
+      cBody.position.y = 0.66;
+      cBody.castShadow = true;
+      const cTop = new THREE.Mesh(crateCapGeo, cyberCyanMat);
+      cTop.position.y = 1.32;
+      cTop.scale.y = 0.7;
+      const cMid = new THREE.Mesh(crateBandGeo, cyberMagentaMat);
+      cMid.position.y = 0.64;
+      cMid.scale.y = 0.55;
+      cyberCrate.add(cBody, cTop, cMid);
+
+      const voidCrate = new THREE.Group();
+      const vBody = new THREE.Mesh(crateGeo, this.galleryPedestalMat);
+      vBody.position.y = 0.66;
+      vBody.castShadow = true;
+      const vCap = new THREE.Mesh(crateCapGeo, galleryGoldMat);
+      vCap.position.y = 1.32;
+      const vBand = new THREE.Mesh(crateBandGeo, voidVioletMat);
+      vBand.position.y = 0.66;
+      vBand.scale.y = 0.45;
+      voidCrate.add(vBody, vCap, vBand);
+
+      const crateViews: Record<SceneId, THREE.Group> = {
+        frost_sanctuary: frostCrate,
+        inferno_caldera: infernoCrate,
+        slime_catacombs: slimeCrate,
+        cyber_foundry: cyberCrate,
+        void_gallery: voidCrate,
+      };
+
+      // ===== 2. SLIDE-UNDER OVERHEAD GATES ('overhead') — bespoke per world =====
+      const frostOverhead = new THREE.Group();
+      const foL = new THREE.Mesh(postGeo, frostTimberMat);
+      foL.position.set(-1.08, 1.38, 0);
+      const foR = new THREE.Mesh(postGeo, frostTimberMat);
+      foR.position.set(1.08, 1.38, 0);
+      const foBeam = new THREE.Mesh(beamGeo, this.iceBlockMat);
+      foBeam.position.set(0, 2.02, 0);
+      foBeam.castShadow = true;
+      const foSnow = new THREE.Mesh(new THREE.BoxGeometry(2.44, 0.16, 0.62), frostSnowCapMat);
+      foSnow.position.set(0, 2.42, 0);
+      frostOverhead.add(foL, foR, foBeam, foSnow);
+      for (const ix of [-0.72, -0.24, 0.24, 0.72]) {
+        const icicle = new THREE.Mesh(icicleGeo, this.iceBlockMat);
+        icicle.position.set(ix, 1.48, 0);
+        frostOverhead.add(icicle);
+      }
+
+      const infernoOverhead = new THREE.Group();
+      const ioL = new THREE.Mesh(stonePostGeo, this.magmaMat);
+      ioL.position.set(-1.08, 1.38, 0);
+      const ioR = new THREE.Mesh(stonePostGeo, this.magmaMat);
+      ioR.position.set(1.08, 1.38, 0);
+      const ioBeam = new THREE.Mesh(beamGeo, forgedIronMat);
+      ioBeam.position.set(0, 2.02, 0);
+      ioBeam.castShadow = true;
+      const ioRune = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.14, 0.62), emberVeinMat);
+      ioRune.position.set(0, 1.62, 0);
+      infernoOverhead.add(ioL, ioR, ioBeam, ioRune);
+
+      const slimeOverhead = new THREE.Group();
+      const soL = new THREE.Mesh(postGeo, sewerMetalMat);
+      soL.position.set(-1.08, 1.38, 0);
+      const soR = new THREE.Mesh(postGeo, sewerMetalMat);
+      soR.position.set(1.08, 1.38, 0);
+      const soPipe = new THREE.Mesh(pipeBeamGeo, this.slimeVatMat);
+      soPipe.position.set(0, 1.98, 0);
+      soPipe.castShadow = true;
+      const soStripe = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.12, 0.74), slimeGlowMat);
+      soStripe.position.set(0, 1.62, 0);
+      slimeOverhead.add(soL, soR, soPipe, soStripe);
+
+      const cyberOverhead = new THREE.Group();
+      const coL = new THREE.Mesh(postGeo, this.steelMat);
+      coL.position.set(-1.08, 1.38, 0);
+      const coR = new THREE.Mesh(postGeo, this.steelMat);
+      coR.position.set(1.08, 1.38, 0);
+      const coBeam = new THREE.Mesh(beamGeo, this.cyberUnitMat);
+      coBeam.position.set(0, 2.04, 0);
+      coBeam.castShadow = true;
+      const coLaser = new THREE.Mesh(new THREE.BoxGeometry(2.14, 0.14, 0.62), cyberCyanMat);
+      coLaser.position.set(0, 1.6, 0);
+      const coTop = new THREE.Mesh(new THREE.BoxGeometry(2.38, 0.12, 0.6), cyberMagentaMat);
+      coTop.position.set(0, 2.44, 0);
+      cyberOverhead.add(coL, coR, coBeam, coLaser, coTop);
+
+      const voidOverhead = new THREE.Group();
+      const voL = new THREE.Mesh(stonePostGeo, this.galleryPedestalMat);
+      voL.position.set(-1.08, 1.38, 0);
+      const voR = new THREE.Mesh(stonePostGeo, this.galleryPedestalMat);
+      voR.position.set(1.08, 1.38, 0);
+      const voBeam = new THREE.Mesh(beamGeo, this.galleryPedestalMat);
+      voBeam.position.set(0, 2.02, 0);
+      voBeam.castShadow = true;
+      const voGold = new THREE.Mesh(new THREE.BoxGeometry(2.44, 0.14, 0.62), galleryGoldMat);
+      voGold.position.set(0, 2.42, 0);
+      const voBar = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.12, 0.62), voidVioletMat);
+      voBar.position.set(0, 1.6, 0);
+      voidOverhead.add(voL, voR, voBeam, voGold, voBar);
+
+      const overheadViews: Record<SceneId, THREE.Group> = {
+        frost_sanctuary: frostOverhead,
+        inferno_caldera: infernoOverhead,
+        slime_catacombs: slimeOverhead,
+        cyber_foundry: cyberOverhead,
+        void_gallery: voidOverhead,
+      };
+
+      // ===== 3. TALL UNJUMPABLE FULL-HEIGHT WORLD MONOLITHS ('special', ~4.85m tall) =====
+      // World 1 (OG Lofi): Towering Glacier Ice Cliff Spire
       const frostSpecial = new THREE.Group();
-      const iceMain = new THREE.Mesh(new THREE.BoxGeometry(1.95, 2.35, 1.95), this.iceBlockMat);
-      iceMain.position.y = 1.18;
+      const iceMain = new THREE.Mesh(frostTowerGeo, this.iceBlockMat);
+      iceMain.position.y = 1.9;
       iceMain.castShadow = true;
-      const iceSpike1 = new THREE.Mesh(new THREE.ConeGeometry(0.65, 1.3, 5), this.iceBlockMat);
-      iceSpike1.position.set(-0.35, 2.55, 0.1);
-      const iceSpike2 = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.05, 5), this.iceBlockMat);
-      iceSpike2.position.set(0.42, 2.4, -0.2);
-      frostSpecial.add(iceMain, iceSpike1, iceSpike2);
+      const iceCap = new THREE.Mesh(crateCapGeo, frostSnowCapMat);
+      iceCap.position.y = 3.82;
+      const iceSpike1 = new THREE.Mesh(frostPeakBigGeo, this.iceBlockMat);
+      iceSpike1.position.set(-0.34, 4.55, 0.08);
+      const iceSpike2 = new THREE.Mesh(frostPeakSmGeo, frostSnowCapMat);
+      iceSpike2.position.set(0.42, 4.35, -0.18);
+      frostSpecial.add(iceMain, iceCap, iceSpike1, iceSpike2);
 
-      // World 2 (Inferno Blaze): Ember Caldera Molten Basalt Monolith
+      // World 2 (Inferno Blaze): Towering Volcanic Dark-Brown Basalt Obelisk
       const infernoSpecial = new THREE.Group();
-      const basaltCore = new THREE.Mesh(new THREE.BoxGeometry(1.9, 2.4, 1.9), this.magmaMat);
-      basaltCore.position.y = 1.2;
+      const basaltCore = new THREE.Mesh(infernoTowerGeo, this.magmaMat);
+      basaltCore.position.y = 2.05;
       basaltCore.castShadow = true;
-      const magmaVein = new THREE.Mesh(new THREE.BoxGeometry(2.02, 0.24, 1.98), lavaGlowMat);
-      magmaVein.position.y = 1.35;
-      const magmaCrown = new THREE.Mesh(new THREE.ConeGeometry(0.85, 1.2, 5), this.magmaMat);
-      magmaCrown.position.y = 2.65;
-      infernoSpecial.add(basaltCore, magmaVein, magmaCrown);
+      const ironBand1 = new THREE.Mesh(infernoBandGeo, forgedIronMat);
+      ironBand1.position.y = 1.4;
+      const ironBand2 = new THREE.Mesh(infernoBandGeo, forgedIronMat);
+      ironBand2.position.y = 3.0;
+      const magmaVein = new THREE.Mesh(infernoBandGeo, emberVeinMat);
+      magmaVein.position.y = 2.2;
+      magmaVein.scale.y = 0.72;
+      const magmaCrown = new THREE.Mesh(infernoCapGeo, forgedIronMat);
+      magmaCrown.position.y = 4.65;
+      magmaCrown.rotation.y = Math.PI / 4;
+      infernoSpecial.add(basaltCore, ironBand1, ironBand2, magmaVein, magmaCrown);
 
-      // World 3 (Neon Slime): Ectoplasm Lab Bio-Hazard Vat
+      // World 3 (Neon Slime): Towering Industrial Bio-Slime Containment Silo
       const slimeSpecial = new THREE.Group();
-      const vatBase = new THREE.Mesh(new THREE.CylinderGeometry(0.98, 1.05, 0.35, 12), this.steelMat);
-      vatBase.position.y = 0.18;
-      const vatTube = new THREE.Mesh(new THREE.CylinderGeometry(0.86, 0.86, 2.1, 12), this.slimeVatMat);
-      vatTube.position.y = 1.35;
+      const vatBase = new THREE.Mesh(slimeTankBaseGeo, sewerMetalMat);
+      vatBase.position.y = 0.19;
+      const vatTube = new THREE.Mesh(slimeTankGlassGeo, this.slimeVatMat);
+      vatTube.position.y = 2.4;
       vatTube.castShadow = true;
-      const vatCap = new THREE.Mesh(new THREE.CylinderGeometry(0.98, 0.98, 0.32, 12), this.steelMat);
-      vatCap.position.y = 2.45;
-      slimeSpecial.add(vatBase, vatTube, vatCap);
+      const vatMidRing = new THREE.Mesh(slimeTankRingGeo, sewerMetalMat);
+      vatMidRing.position.y = 2.4;
+      const vatGlowRing = new THREE.Mesh(slimeTankRingGeo, slimeGlowMat);
+      vatGlowRing.position.y = 3.6;
+      vatGlowRing.scale.y = 0.55;
+      const vatCap = new THREE.Mesh(slimeTankBaseGeo, sewerMetalMat);
+      vatCap.position.y = 4.65;
+      slimeSpecial.add(vatBase, vatTube, vatMidRing, vatGlowRing, vatCap);
 
-      // World 4 (Half-Cyborg): Mecha Foundry Cyber Barricade / Cargo Pod
+      // World 4 (Half-Cyborg): Towering Cyberpunk Armored Server / Cargo Monolith
       const cyberSpecial = new THREE.Group();
-      const cyberBody = new THREE.Mesh(new THREE.BoxGeometry(2.05, 2.35, 2.6), cyberUnitMat);
-      cyberBody.position.y = 1.18;
+      const cyberBody = new THREE.Mesh(cyberTowerGeo, this.cyberUnitMat);
+      cyberBody.position.y = 2.38;
       cyberBody.castShadow = true;
-      const cyberStripe = new THREE.Mesh(new THREE.BoxGeometry(2.12, 0.25, 2.66), neonBarMat);
-      cyberStripe.position.y = 1.85;
-      cyberSpecial.add(cyberBody, cyberStripe);
+      const cyberStripe1 = new THREE.Mesh(cyberStripeGeo, cyberCyanMat);
+      cyberStripe1.position.y = 1.65;
+      const cyberStripe2 = new THREE.Mesh(cyberStripeGeo, cyberMagentaMat);
+      cyberStripe2.position.y = 3.25;
+      const cyberStripe3 = new THREE.Mesh(cyberStripeGeo, cyberCyanMat);
+      cyberStripe3.position.y = 4.55;
+      cyberSpecial.add(cyberBody, cyberStripe1, cyberStripe2, cyberStripe3);
 
-      // World 5 (Void Shadow): Astral Gallery Obsidian Pedestal + Gold Relic
+      // World 5 (Void Shadow): Towering Obsidian & Gold Astral Gallery Monolith
       const voidSpecial = new THREE.Group();
-      const pedBase = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.45, 1.8), this.galleryPedestalMat);
-      pedBase.position.y = 0.72;
+      const pedBase = new THREE.Mesh(voidPillarGeo, this.galleryPedestalMat);
+      pedBase.position.y = 2.02;
       pedBase.castShadow = true;
-      const sculpture = new THREE.Mesh(new THREE.OctahedronGeometry(0.72, 0), galleryGoldMat);
-      sculpture.position.y = 2.15;
-      const goldTrim = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.14, 1.9), galleryGoldMat);
-      goldTrim.position.y = 1.46;
-      voidSpecial.add(pedBase, goldTrim, sculpture);
+      const goldTrim1 = new THREE.Mesh(voidTrimGeo, galleryGoldMat);
+      goldTrim1.position.y = 1.6;
+      const goldTrim2 = new THREE.Mesh(voidTrimGeo, galleryGoldMat);
+      goldTrim2.position.y = 4.08;
+      const violetLine = new THREE.Mesh(voidTrimGeo, voidVioletMat);
+      violetLine.position.y = 2.85;
+      violetLine.scale.y = 0.65;
+      const sculpture = new THREE.Mesh(voidSpireGeo, galleryGoldMat);
+      sculpture.position.y = 4.82;
+      voidSpecial.add(pedBase, goldTrim1, goldTrim2, violetLine, sculpture);
 
       const specialViews: Record<SceneId, THREE.Group> = {
         frost_sanctuary: frostSpecial,
@@ -331,8 +544,16 @@ export class EntityPoolManager {
       };
 
       group.add(
-        crateView,
-        overheadView,
+        frostCrate,
+        infernoCrate,
+        slimeCrate,
+        cyberCrate,
+        voidCrate,
+        frostOverhead,
+        infernoOverhead,
+        slimeOverhead,
+        cyberOverhead,
+        voidOverhead,
         frostSpecial,
         infernoSpecial,
         slimeSpecial,
@@ -349,8 +570,8 @@ export class EntityPoolManager {
         sliced: false,
         sliceTimer: 0,
         group,
-        crateView,
-        overheadView,
+        crateViews,
+        overheadViews,
         specialViews,
       });
     }
@@ -552,7 +773,7 @@ export class EntityPoolManager {
   public setScene(sceneId: SceneId): void {
     this.currentScene = sceneId;
     for (const obs of this.obstacles) {
-      if (obs.active && obs.kind === 'special') {
+      if (obs.active) {
         this.syncObstacleVisual(obs);
       }
     }
@@ -628,13 +849,13 @@ export class EntityPoolManager {
   }
 
   private getMaterialForObstacle(kind: ObstacleKind): THREE.Material {
-    if (kind === 'crate') return this.crateMat;
-    if (kind === 'overhead') return this.hazardMat;
+    void kind;
     if (this.currentScene === 'frost_sanctuary') return this.iceBlockMat;
     if (this.currentScene === 'inferno_caldera') return this.magmaMat;
     if (this.currentScene === 'slime_catacombs') return this.slimeVatMat;
+    if (this.currentScene === 'cyber_foundry') return this.cyberUnitMat;
     if (this.currentScene === 'void_gallery') return this.galleryPedestalMat;
-    return this.steelMat;
+    return this.crateMat;
   }
 
   /**
@@ -648,8 +869,8 @@ export class EntityPoolManager {
     obs.group.visible = false;
 
     const baseX = LANE_X[obs.lane];
-    const baseY = obs.kind === 'overhead' ? 1.85 : obs.kind === 'special' ? 1.2 : 0.72;
-    const scaleY = obs.kind === 'special' ? 1.55 : obs.kind === 'overhead' ? 0.62 : 1.0;
+    const baseY = obs.kind === 'overhead' ? 1.85 : obs.kind === 'special' ? 1.85 : 0.72;
+    const scaleY = obs.kind === 'special' ? 2.25 : obs.kind === 'overhead' ? 0.62 : 1.0;
     const scaleZ = obs.kind === 'special' && this.currentScene === 'cyber_foundry' ? 1.45 : 1.0;
     const mat = this.getMaterialForObstacle(obs.kind);
 
@@ -952,10 +1173,11 @@ export class EntityPoolManager {
   }
 
   private syncObstacleVisual(obs: PooledObstacle): void {
-    obs.crateView.visible = obs.kind === 'crate';
-    obs.overheadView.visible = obs.kind === 'overhead';
-    (Object.keys(obs.specialViews) as SceneId[]).forEach((sid) => {
-      obs.specialViews[sid].visible = obs.kind === 'special' && sid === this.currentScene;
+    (Object.keys(obs.crateViews) as SceneId[]).forEach((sid) => {
+      const match = sid === this.currentScene;
+      obs.crateViews[sid].visible = obs.kind === 'crate' && match;
+      obs.overheadViews[sid].visible = obs.kind === 'overhead' && match;
+      obs.specialViews[sid].visible = obs.kind === 'special' && match;
     });
   }
 

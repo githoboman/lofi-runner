@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ART_URLS, SCENE_NAMES, SEGMENT_COUNT, SEGMENT_LENGTH } from './config';
 import {
+  createBrownMagmaTexture,
   createFlowingSlimeTexture,
   createParallaxHorizonTexture,
   createRoadTexture,
@@ -61,21 +62,21 @@ export const SCENE_SPECS: Record<SceneId, SceneThemeSpec> = {
   inferno_caldera: {
     id: 'inferno_caldera',
     name: SCENE_NAMES.inferno_caldera,
-    fogColor: 0x3b150e,
-    fogNear: 102,
-    fogFar: 278,
-    skyTop: '#1a0605',
-    skyMid: '#5c190c',
-    skyBottom: '#c2410c',
-    hemiSky: 0xfdba74,
-    hemiGround: 0x571a09,
-    hemiIntensity: 1.18,
-    keyColor: 0xfef08a,
-    keyIntensity: 1.95,
-    rimColor: 0xf97316,
-    rimIntensity: 1.45,
-    roadRoughness: 0.52,
-    roadMetalness: 0.2,
+    fogColor: 0x2b1811,
+    fogNear: 104,
+    fogFar: 282,
+    skyTop: '#140c09',
+    skyMid: '#2d1b13',
+    skyBottom: '#5a3322',
+    hemiSky: 0xd9b394,
+    hemiGround: 0x3b2115,
+    hemiIntensity: 1.15,
+    keyColor: 0xfde8cc,
+    keyIntensity: 1.85,
+    rimColor: 0xb45309,
+    rimIntensity: 1.15,
+    roadRoughness: 0.56,
+    roadMetalness: 0.18,
   },
   slime_catacombs: {
     id: 'slime_catacombs',
@@ -426,6 +427,7 @@ export class WorldManager {
     directionY: number,
     speedBase: number,
     windShearX = 0,
+    opacity = 0.9,
   ): AmbientParticles {
     const positions = new Float32Array(count * 3);
     const velocities = new Float32Array(count);
@@ -441,7 +443,7 @@ export class WorldManager {
       color,
       size,
       transparent: true,
-      opacity: 0.9,
+      opacity,
       depthWrite: false,
     });
     const points = new THREE.Points(geo, mat);
@@ -645,23 +647,26 @@ export class WorldManager {
     const { mesh: roadMesh, texture: roadTexture } = this.createRoadMesh('inferno_caldera');
     root.add(roadMesh);
 
-    // Molten magma canyon flowing clearly beneath the elevated temple causeway
+    // Grounded cooled brown volcanic magma crust flowing slowly beneath the elevated temple causeway
+    const brownMagmaTex = createBrownMagmaTexture(this.maxAniso);
+    brownMagmaTex.repeat.set(16, 14);
     const lavaMat = new THREE.MeshStandardMaterial({
-      color: 0xea580c,
-      emissive: 0xf97316,
-      emissiveIntensity: 1.25,
-      roughness: 0.28,
-      metalness: 0.12,
+      map: brownMagmaTex,
+      emissiveMap: brownMagmaTex,
+      emissive: 0x9a3412,
+      emissiveIntensity: 0.42,
+      roughness: 0.64,
+      metalness: 0.14,
     });
     const liquidFloor = new THREE.Mesh(new THREE.PlaneGeometry(280, TOTAL_LENGTH + 40), lavaMat);
     liquidFloor.rotation.x = -Math.PI / 2;
     liquidFloor.position.set(0, -1.7, WRAP_FRONT_Z - TOTAL_LENGTH / 2);
     root.add(liquidFloor);
 
-    // Carved temple bridge stone parapets + glowing ember trim separating track from ruins
+    // Carved temple bridge stone parapets + muted terracotta ember trim separating track from ruins
     const bridgeWallGeo = new THREE.BoxGeometry(1.5, 2.2, TOTAL_LENGTH);
-    const basaltMat = new THREE.MeshStandardMaterial({ color: 0x2b1918, roughness: 0.78, metalness: 0.24 });
-    const emberEdgeMat = new THREE.MeshBasicMaterial({ color: 0xfb923c });
+    const basaltMat = new THREE.MeshStandardMaterial({ color: 0x2b1b15, roughness: 0.8, metalness: 0.2 });
+    const emberEdgeMat = new THREE.MeshBasicMaterial({ color: 0xb45309 });
     const leftWall = new THREE.Mesh(bridgeWallGeo, basaltMat);
     leftWall.position.set(-5.55, -0.75, WRAP_FRONT_Z - TOTAL_LENGTH / 2);
     const rightWall = new THREE.Mesh(bridgeWallGeo, basaltMat);
@@ -675,7 +680,7 @@ export class WorldManager {
 
     // Sculpted Fluted Obsidian Temple Columns, Stepped Altar Plinths, Carved Capitals & Broken Lintels
     const colCount = SEGMENT_COUNT * 4;
-    const stoneMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, metalness: 0.26 });
+    const stoneMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.76, metalness: 0.22 });
     const columns = new THREE.InstancedMesh(new THREE.CylinderGeometry(1.05, 1.48, 13.8, 10), stoneMat, colCount);
     columns.frustumCulled = false;
 
@@ -688,22 +693,27 @@ export class WorldManager {
     // Broken slanted stone temple architraves & cross-cornices overhanging the magma flanks
     const lintels = new THREE.InstancedMesh(
       new THREE.BoxGeometry(9.2, 1.55, 2.35),
-      new THREE.MeshStandardMaterial({ color: 0x341f1b, roughness: 0.76, metalness: 0.2 }),
+      new THREE.MeshStandardMaterial({ color: 0x35221b, roughness: 0.78, metalness: 0.18 }),
       SEGMENT_COUNT * 2,
     );
     lintels.frustumCulled = false;
 
-    // Carved bronze fire braziers + roaring temple flames lining the bridge parapet
+    // Carved bronze fire braziers + rich deep-amber temple flames lining the bridge parapet
     const brazierBowls = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(1.18, 0.62, 1.3, 8),
-      new THREE.MeshStandardMaterial({ color: 0x261a18, roughness: 0.48, metalness: 0.72 }),
+      new THREE.MeshStandardMaterial({ color: 0x261a16, roughness: 0.5, metalness: 0.72 }),
       colCount,
     );
     brazierBowls.frustumCulled = false;
 
     const flameTops = new THREE.InstancedMesh(
-      new THREE.ConeGeometry(0.9, 3.1, 7),
-      new THREE.MeshBasicMaterial({ color: 0xfde047 }),
+      new THREE.ConeGeometry(0.76, 2.35, 7),
+      new THREE.MeshStandardMaterial({
+        color: 0xc2410c,
+        emissive: 0xd97706,
+        emissiveIntensity: 0.85,
+        roughness: 0.4,
+      }),
       colCount,
     );
     flameTops.frustumCulled = false;
@@ -711,19 +721,19 @@ export class WorldManager {
     // Far volcanic spires pushed behind the Flanking Inferno Trance Colossi (x = ±25.5)
     const crags = new THREE.InstancedMesh(
       new THREE.ConeGeometry(10.0, 23, 6),
-      new THREE.MeshStandardMaterial({ color: 0x261210, roughness: 0.85 }),
+      new THREE.MeshStandardMaterial({ color: 0x281812, roughness: 0.86 }),
       colCount,
     );
     crags.frustumCulled = false;
 
     // Heavy forged iron chains: catenary side drapes + dynamically swinging pendulum chains with ember cages!
     const ironChainMat = new THREE.MeshStandardMaterial({
-      color: 0x4b4240,
-      roughness: 0.36,
-      metalness: 0.9,
+      color: 0x4b423f,
+      roughness: 0.38,
+      metalness: 0.88,
     });
-    const runeGlowMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
-    const emberCoreMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+    const runeGlowMat = new THREE.MeshBasicMaterial({ color: 0xb45309 });
+    const emberCoreMat = new THREE.MeshBasicMaterial({ color: 0xd97706 });
 
     const sideChainCurve = new THREE.CatmullRomCurve3([
       new THREE.Vector3(0, 11.4, -7.5),
@@ -873,101 +883,24 @@ export class WorldManager {
       instancedProps.push(im);
     });
 
-    // Staggered erupting molten lava geysers + rising 3D glowing thermal heat rings (NO snow particles!)
-    const geyserCount = 14;
-    const geyserColumns = new THREE.InstancedMesh(
-      new THREE.CylinderGeometry(0.45, 1.15, 1, 7),
-      new THREE.MeshBasicMaterial({ color: 0xf97316, transparent: true, opacity: 0.9 }),
-      geyserCount,
-    );
-    geyserColumns.frustumCulled = false;
-    const geyserCrowns = new THREE.InstancedMesh(
-      new THREE.DodecahedronGeometry(1.15, 0),
-      new THREE.MeshBasicMaterial({ color: 0xfef08a }),
-      geyserCount,
-    );
-    geyserCrowns.frustumCulled = false;
-    const geyserData = new Float32Array(geyserCount * 4);
-    for (let i = 0; i < geyserCount; i++) {
-      const side = i % 2 === 0 ? -1 : 1;
-      geyserData[i * 4] = side * (16.2 + (i % 3) * 3.6);
-      geyserData[i * 4 + 1] = -14 - i * 8.8;
-      geyserData[i * 4 + 2] = i * 1.17;
-      geyserData[i * 4 + 3] = 11.5 + (i % 4) * 3.8;
-    }
-
-    const heatRingCount = 16;
-    const heatRingGeo = new THREE.TorusGeometry(1.35, 0.1, 6, 16);
-    heatRingGeo.rotateX(Math.PI / 2);
-    const heatRings = new THREE.InstancedMesh(
-      heatRingGeo,
-      new THREE.MeshBasicMaterial({ color: 0xfb923c, transparent: true, opacity: 0.65 }),
-      heatRingCount,
-    );
-    heatRings.frustumCulled = false;
-    const heatRingData = new Float32Array(heatRingCount * 4); // x, y, z, speedY
-    for (let i = 0; i < heatRingCount; i++) {
-      const side = i % 2 === 0 ? -1 : 1;
-      heatRingData[i * 4] = side * (14 + (i % 3) * 4.5);
-      heatRingData[i * 4 + 1] = (i * 1.4) % 16;
-      heatRingData[i * 4 + 2] = -12 - i * 7.8;
-      heatRingData[i * 4 + 3] = 3.2 + (i % 3) * 1.1;
-    }
-    root.add(geyserColumns, geyserCrowns, heatRings);
-
     const updateDynamic = (elapsed: number, dt: number) => {
+      // Slow tectonic drift of the cooled brown volcanic magma crust below
+      brownMagmaTex.offset.y = (brownMagmaTex.offset.y + dt * 0.14) % 1;
+      brownMagmaTex.offset.x = Math.sin(elapsed * 0.25) * 0.04;
+
       // Smoothly swing all hanging iron temple chains & ember cages
       for (let i = 0; i < swingChains.length; i++) {
         const sc = swingChains[i];
         sc.pivot.rotation.z = Math.sin(elapsed * sc.freq + sc.phase) * sc.amp;
         sc.pivot.rotation.x = Math.cos(elapsed * sc.freq * 0.72 + sc.phase) * (sc.amp * 0.35);
       }
-
-      for (let i = 0; i < geyserCount; i++) {
-        const idx = i * 4;
-        const x = geyserData[idx];
-        const z = geyserData[idx + 1];
-        const raw = Math.sin(elapsed * 1.65 + geyserData[idx + 2]);
-        const burst = Math.pow(Math.max(0, raw), 2.4);
-        const h = 0.4 + burst * geyserData[idx + 3];
-
-        _dummy.position.set(x, -1.7 + h * 0.5, z);
-        _dummy.rotation.set(0, elapsed * 1.2 + i, 0);
-        _dummy.scale.set(0.65 + burst * 0.55, h, 0.65 + burst * 0.55);
-        _dummy.updateMatrix();
-        geyserColumns.setMatrixAt(i, _dummy.matrix);
-
-        _dummy.position.set(x, -1.6 + h, z);
-        _dummy.rotation.set(elapsed * 2, i, elapsed * 1.5);
-        const crownSc = 0.25 + burst * 1.25;
-        _dummy.scale.setScalar(crownSc);
-        _dummy.updateMatrix();
-        geyserCrowns.setMatrixAt(i, _dummy.matrix);
-      }
-      geyserColumns.instanceMatrix.needsUpdate = true;
-      geyserCrowns.instanceMatrix.needsUpdate = true;
-
-      for (let i = 0; i < heatRingCount; i++) {
-        const idx = i * 4;
-        let y = heatRingData[idx + 1] + heatRingData[idx + 3] * dt;
-        if (y > 16.5) y = -0.8;
-        heatRingData[idx + 1] = y;
-        const p = THREE.MathUtils.clamp((y + 0.8) / 17.3, 0, 1);
-        const sc = 0.6 + p * 1.5;
-        _dummy.position.set(heatRingData[idx], y, heatRingData[idx + 2]);
-        _dummy.rotation.set(0, elapsed * 0.8 + i, 0);
-        _dummy.scale.set(sc, 1, sc);
-        _dummy.updateMatrix();
-        heatRings.setMatrixAt(i, _dummy.matrix);
-      }
-      heatRings.instanceMatrix.needsUpdate = true;
     };
 
-    const parallaxLayers = this.createParallaxBackdrops('inferno_caldera', 0.006, 0.022, 0.84);
+    const parallaxLayers = this.createParallaxBackdrops('inferno_caldera', 0.005, 0.016, 0.72);
     parallaxLayers.forEach((l) => root.add(l.mesh));
 
-    // Rising glowing molten embers drifting upward from the lava canyon (directionY = +1, never falling snow)
-    const particles = this.createAmbientParticles(0xfb923c, 280, 0.32, 1, 3.8, 0.9);
+    // Very tiny, subtle falling cool-grey volcanic ash specks for a clean, grounded Lofi atmosphere
+    const particles = this.createAmbientParticles(0xa8a29e, 240, 0.13, -1, 1.35, 0.42, 0.56);
     root.add(particles.points);
 
     const titan = createWorldTitan('inferno_caldera');

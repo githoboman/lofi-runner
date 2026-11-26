@@ -127,27 +127,27 @@ export function createRoadTexture(sceneId: SceneId, maxAniso: number): THREE.Can
       ctx.fillRect(333, y, 7, 30);
     }
   } else if (sceneId === 'inferno_caldera') {
-    // Inferno Blaze's Lava Temple Ruins: carved volcanic basalt flagstones with glowing magma veins
-    ctx.fillStyle = '#1b1111';
+    // Inferno Blaze's Volcanic Temple Causeway: dark roasted basalt flagstones with subtle deep amber seams
+    ctx.fillStyle = '#1c120e';
     ctx.fillRect(0, 0, w, h);
 
     for (let y = 0; y < h; y += 64) {
-      ctx.fillStyle = y % 128 === 0 ? '#261717' : '#1f1313';
+      ctx.fillStyle = y % 128 === 0 ? '#271913' : '#20140f';
       ctx.fillRect(0, y, w, 60);
-      ctx.fillStyle = 'rgba(249, 115, 22, 0.4)';
+      ctx.fillStyle = 'rgba(154, 52, 18, 0.34)';
       ctx.fillRect(0, y + 60, w, 4);
     }
 
-    // Glowing molten magma temple curbs
-    ctx.fillStyle = '#f97316';
+    // Grounded dark terracotta & warm amber temple curbs
+    ctx.fillStyle = '#7c2d12';
     ctx.fillRect(8, 0, 16, h);
     ctx.fillRect(w - 24, 0, 16, h);
-    ctx.fillStyle = '#fde047';
+    ctx.fillStyle = '#c2410c';
     ctx.fillRect(12, 0, 6, h);
     ctx.fillRect(w - 18, 0, 6, h);
 
-    // Ember lane chevrons
-    ctx.fillStyle = '#fb923c';
+    // Subtle ember-amber lane chevrons
+    ctx.fillStyle = '#b45309';
     for (let y = 14; y < h; y += 58) {
       ctx.fillRect(172, y, 8, 32);
       ctx.fillRect(332, y, 8, 32);
@@ -558,7 +558,7 @@ export function createParallaxHorizonTexture(
     }
   } else if (sceneId === 'inferno_caldera') {
     if (layer === 'far') {
-      // Jagged volcanic caldera rim with glowing lava veins
+      // Grounded dark volcanic brown caldera peaks with subtle terracotta crust veins
       ctx.beginPath();
       ctx.moveTo(0, h);
       const peaks = 18;
@@ -570,30 +570,30 @@ export function createParallaxHorizonTexture(
       ctx.lineTo(w, h);
       ctx.closePath();
       const g = ctx.createLinearGradient(0, 50, 0, h);
-      g.addColorStop(0, '#3b1109');
-      g.addColorStop(0.65, '#1f0907');
-      g.addColorStop(1, '#7c2d12');
+      g.addColorStop(0, '#2e1b13');
+      g.addColorStop(0.65, '#1d110c');
+      g.addColorStop(1, '#4a2818');
       ctx.fillStyle = g;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(251, 146, 60, 0.75)';
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(180, 83, 9, 0.5)';
+      ctx.lineWidth = 2.5;
       ctx.stroke();
 
-      // Glowing magma fissures running down caldera slopes
-      ctx.strokeStyle = 'rgba(253, 224, 71, 0.78)';
-      ctx.lineWidth = 2.5;
+      // Subtle smoldering fissures along caldera slopes
+      ctx.strokeStyle = 'rgba(194, 65, 12, 0.55)';
+      ctx.lineWidth = 2;
       for (let i = 0; i < 10; i++) {
         const fx = (i + 0.4) * (w / 10);
         ctx.beginPath();
-        ctx.moveTo(fx, 110 + (i % 3) * 18);
-        ctx.lineTo(fx + 14, 170);
+        ctx.moveTo(fx, 114 + (i % 3) * 18);
+        ctx.lineTo(fx + 14, 174);
         ctx.lineTo(fx - 8, 242);
         ctx.stroke();
       }
     } else {
-      // Drifting ember-lit volcanic smoke & ash clouds
-      drawCloudBand('rgba(249, 115, 22, 0.42)', 'rgba(124, 45, 18, 0.25)', 118, 20, 42, 92);
-      drawCloudBand('rgba(253, 224, 71, 0.26)', 'rgba(234, 88, 12, 0.14)', 165, 14, 34, 68);
+      // Subtle cool-grey & warm-umber volcanic ash clouds
+      drawCloudBand('rgba(120, 102, 92, 0.34)', 'rgba(66, 44, 34, 0.18)', 118, 18, 42, 88);
+      drawCloudBand('rgba(156, 134, 122, 0.2)', 'rgba(84, 52, 36, 0.1)', 165, 14, 34, 66);
     }
   } else if (sceneId === 'slime_catacombs') {
     if (layer === 'far') {
@@ -764,4 +764,113 @@ export function createFlowingSlimeTexture(maxAniso: number): THREE.CanvasTexture
   tex.needsUpdate = true;
   return tex;
 }
+
+/**
+ * Tileable grounded brown volcanic magma crust texture:
+ * cooled roasted-umber rock plates interlaced with subtle smoldering terracotta & deep amber veins.
+ */
+export function createBrownMagmaTexture(maxAniso: number): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  // Deep roasted volcanic brown crust base
+  ctx.fillStyle = '#2b1911';
+  ctx.fillRect(0, 0, size, size);
+
+  // Subtle textured basalt crust patches (seamless wrapping)
+  const plateColors = ['#3a2317', '#24140d', '#472b1c', '#311d13', '#523322'];
+  for (let i = 0; i < 72; i++) {
+    const cx = (i * 131 + 29) % size;
+    const cy = (i * 193 + 47) % size;
+    const rx = 24 + (i % 5) * 13;
+    const ry = 20 + ((i * 3) % 5) * 11;
+    const rot = ((i * 41) % 314) * 0.01;
+    ctx.fillStyle = plateColors[i % plateColors.length];
+    for (const ox of [-size, 0, size]) {
+      for (const oy of [-size, 0, size]) {
+        ctx.save();
+        ctx.translate(cx + ox, cy + oy);
+        ctx.rotate(rot);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
+  // Slow-flowing smoldering magma veins beneath the cooled brown crust (tileable sine ribbons)
+  const veins = [
+    { color: 'rgba(124, 45, 18, 0.72)', width: 14, amp: 28, freq: 2, phase: 0.4 },
+    { color: 'rgba(180, 83, 9, 0.56)', width: 6.5, amp: 28, freq: 2, phase: 0.4 },
+    { color: 'rgba(217, 119, 6, 0.42)', width: 2.4, amp: 28, freq: 2, phase: 0.4 },
+  ];
+
+  for (let v = 0; v < veins.length; v++) {
+    const vein = veins[v];
+    ctx.strokeStyle = vein.color;
+    ctx.lineWidth = vein.width;
+    ctx.lineCap = 'round';
+    for (let lane = 0; lane < 3; lane++) {
+      const baseX = (lane + 0.5) * (size / 3);
+      for (const wrapX of [-size, 0, size]) {
+        ctx.beginPath();
+        for (let y = -16; y <= size + 16; y += 8) {
+          const t = (y / size) * Math.PI * 2;
+          const x =
+            baseX +
+            wrapX +
+            Math.sin(t * vein.freq + vein.phase + lane * 2.1) * vein.amp +
+            Math.cos(t * 3 + lane) * 10;
+          if (y === -16) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Cross-fissure glowing brown-amber crust cracks
+  for (let i = 0; i < 18; i++) {
+    const x0 = (i * 157 + 19) % size;
+    const y0 = (i * 97 + 41) % size;
+    const dx = 44 + (i % 4) * 18;
+    const dy = (i % 2 === 0 ? 1 : -1) * (22 + (i % 3) * 14);
+    for (const ox of [-size, 0, size]) {
+      for (const oy of [-size, 0, size]) {
+        ctx.strokeStyle = 'rgba(154, 52, 18, 0.45)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(x0 + ox, y0 + oy);
+        ctx.lineTo(x0 + ox + dx * 0.5, y0 + oy + dy * 0.65);
+        ctx.lineTo(x0 + ox + dx, y0 + oy + dy);
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(217, 119, 6, 0.32)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Fine volcanic grain & ash speckles
+  for (let i = 0; i < 900; i++) {
+    const px = (i * 73 + 11) % size;
+    const py = (i * 149 + 37) % size;
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(20, 10, 6, 0.35)' : 'rgba(120, 88, 70, 0.16)';
+    ctx.fillRect(px, py, 2, 2);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = Math.min(8, Math.max(1, maxAniso));
+  tex.needsUpdate = true;
+  return tex;
+}
+
 
