@@ -76,44 +76,45 @@ export function StoreOverlay({
   const armedCount = save.equippedBoosters.length;
 
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#060a14]/82 p-3 sm:p-6">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/14 bg-[#0d1424] shadow-2xl">
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#060a14]/82 p-2.5 sm:p-6">
+      <div className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/14 bg-[#0d1424] shadow-2xl">
         {/* Top Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3.5 sm:px-6">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-white/10 px-3.5 py-3 sm:px-6 sm:py-3.5">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={onClose}
-              className="flex items-center gap-1 rounded-lg border border-white/14 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              className="flex items-center gap-1 rounded-lg border border-white/14 bg-white/5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap shrink-0 touch-manipulation min-h-[36px]"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
               Back
             </button>
-            <div>
-              <h2 className="font-[var(--font-display)] text-lg sm:text-xl font-extrabold text-white leading-tight">
+            <div className="min-w-0">
+              <h2 className="font-[var(--font-display)] text-base sm:text-xl font-extrabold text-white leading-tight truncate">
                 Yeti Runner Store
               </h2>
-              <p className="text-[11px] text-slate-400">
+              <p className="hidden sm:block text-[11px] text-slate-400">
                 Spend SUI Coins on permanent upgrades, single-run boosters, and Yetis
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3.5 py-2 text-sm font-bold text-amber-300 tabular-nums shrink-0">
-            <Coins className="h-4 w-4" />
-            {save.coinBalance.toLocaleString()} SUI Coins
+          <div className="flex items-center gap-1.5 sm:gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs sm:text-sm font-bold text-amber-300 tabular-nums shrink-0">
+            <Coins className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span>{save.coinBalance.toLocaleString()}</span>
+            <span className="hidden sm:inline">SUI Coins</span>
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-[#090e1a] px-4 py-2.5 sm:px-6">
-          <div className="flex items-center gap-1.5">
+        {/* Navigation Tabs (horizontally scrollable on narrow phones) */}
+        <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-[#090e1a] px-3.5 py-2 sm:px-6 sm:py-2.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto touch-pan-x no-scrollbar">
             {(
               [
                 { id: 'upgrades', label: 'Upgrades' },
                 {
                   id: 'boosters',
-                  label: armedCount > 0 ? `Run Boosters (${armedCount} Armed)` : 'Run Boosters',
+                  label: armedCount > 0 ? `Boosters (${armedCount})` : 'Boosters',
                 },
                 { id: 'yetis', label: 'Yeti Unlocks' },
               ] as { id: StoreTab; label: string }[]
@@ -124,7 +125,7 @@ export function StoreOverlay({
                   key={item.id}
                   type="button"
                   onClick={() => setTab(item.id)}
-                  className={`rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  className={`rounded-lg px-3 sm:px-3.5 py-2 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
                     active
                       ? 'bg-sky-400 text-slate-950 font-bold'
                       : 'text-slate-300 hover:bg-white/5 hover:text-white'
@@ -136,13 +137,13 @@ export function StoreOverlay({
             })}
           </div>
 
-          <span className="hidden sm:inline text-[11px] text-slate-400 tabular-nums">
+          <span className="hidden sm:inline text-[11px] text-slate-400 tabular-nums shrink-0">
             Lifetime Earned: {save.lifetimeCoins.toLocaleString()} SUI
           </span>
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="flex-1 overflow-y-auto overscroll-contain touch-pan-y p-3.5 sm:p-6">
           {tab === 'upgrades' && (
             <div className="space-y-3">
               {STORE_UPGRADES.map((upg) => {
@@ -309,18 +310,18 @@ export function StoreOverlay({
                 return (
                   <div
                     key={char.id}
-                    className={`flex items-center justify-between gap-3 rounded-xl border p-3.5 ${
+                    className={`flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 rounded-xl border p-3.5 ${
                       equipped
                         ? 'border-sky-400/60 bg-sky-500/10'
                         : 'border-white/10 bg-[#111a2e]'
                     }`}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                       <img
                         src={char.portraitUrl}
                         alt={char.name}
                         referrerPolicy="no-referrer"
-                        className="h-14 w-14 rounded-xl object-contain bg-[#090e1a] p-1 border border-white/12 shrink-0"
+                        className="h-12 w-12 sm:h-14 sm:w-14 rounded-xl object-contain bg-[#090e1a] p-1 border border-white/12 shrink-0"
                       />
                       <div className="min-w-0">
                         <div className="font-[var(--font-display)] text-sm font-bold text-white truncate">
@@ -335,7 +336,7 @@ export function StoreOverlay({
                       </div>
                     </div>
 
-                    <div className="shrink-0">
+                    <div className="w-full sm:w-auto flex justify-end shrink-0">
                       {equipped ? (
                         <span className="inline-flex items-center gap-1 rounded-lg border border-sky-400/40 bg-sky-500/15 px-3 py-2 text-xs font-bold text-sky-200 whitespace-nowrap">
                           <Check className="h-3.5 w-3.5" />

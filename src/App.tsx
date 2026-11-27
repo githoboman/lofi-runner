@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ChevronLeft,
   Coins,
-  FastForward,
   Heart,
   Lock,
   Music,
@@ -943,9 +942,9 @@ export default function App() {
   const activeRunChar = getCharacterById(hud.characterId);
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-[#090d16] text-slate-100 select-none">
-      {/* Isolated full-viewport 3D WebGL canvas */}
-      <div ref={canvasMountRef} className="absolute inset-0 w-full h-full" />
+    <div className="relative w-full h-[100dvh] overflow-hidden bg-[#090d16] text-slate-100 select-none">
+      {/* Isolated full-viewport 3D WebGL canvas (touch-none scoped to gameplay canvas so overlays scroll freely) */}
+      <div ref={canvasMountRef} className="absolute inset-0 w-full h-full touch-none" />
 
       {/* Luminous chromatic 3D World Portal warp flash overlay */}
       {hud.sceneFadeOpacity > 0.01 && (
@@ -974,35 +973,90 @@ export default function App() {
 
       {/* ==================== MAIN MENU ==================== */}
       {screen === 'menu' && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 sm:p-6">
-          <header className="pointer-events-auto flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <CharacterAvatar
-                src={equippedChar.portraitUrl}
-                alt={equippedChar.name}
-                accentHex={equippedChar.accentHex}
-                className="h-12 w-12"
-              />
-              <div>
-                <h1 className="font-[var(--font-display)] text-2xl sm:text-3xl font-extrabold tracking-tight text-white leading-none">
-                  Lofi Yeti Runner
-                </h1>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-300 tabular-nums">
-                  <span className="font-semibold text-white">{equippedChar.name}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>Best {save.highScore.toLocaleString()}</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="text-amber-300 font-semibold">
-                    {save.coinBalance.toLocaleString()} SUI Coins
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span>{DIFFICULTIES[save.settings.difficulty].label}</span>
+        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between safe-area-hud">
+          <header className="pointer-events-auto flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
+            {/* Row 1: Brand + Compact Mobile Actions */}
+            <div className="flex items-center justify-between gap-2 min-w-0">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <CharacterAvatar
+                  src={equippedChar.portraitUrl}
+                  alt={equippedChar.name}
+                  accentHex={equippedChar.accentHex}
+                  className="h-10 w-10 sm:h-12 sm:w-12"
+                />
+                <div className="min-w-0">
+                  <h1 className="font-[var(--font-display)] text-lg sm:text-3xl font-extrabold tracking-tight text-white leading-none truncate">
+                    Lofi Yeti Runner
+                  </h1>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] sm:text-xs text-slate-300 tabular-nums">
+                    <span className="font-semibold text-white truncate max-w-[96px] sm:max-w-none">
+                      {equippedChar.name}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>Best {save.highScore.toLocaleString()}</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="text-amber-300 font-semibold">
+                      {save.coinBalance.toLocaleString()} SUI
+                    </span>
+                    <span aria-hidden="true" className="hidden sm:inline">·</span>
+                    <span className="hidden sm:inline">
+                      {DIFFICULTIES[save.settings.difficulty].label}
+                    </span>
+                  </div>
                 </div>
+              </div>
+
+              {/* Mobile-inline Music + Google Sign-In controls */}
+              <div className="flex sm:hidden items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleToggleMusic}
+                  aria-label={save.settings.musicEnabled ? 'Mute background beats' : 'Play background beats'}
+                  className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors cursor-pointer touch-manipulation ${
+                    save.settings.musicEnabled
+                      ? 'border-emerald-400/45 bg-emerald-500/15 text-emerald-200'
+                      : 'border-white/12 bg-[#0c1220]/90 text-slate-400'
+                  }`}
+                >
+                  <Music className="h-4 w-4" />
+                </button>
+
+                {account ? (
+                  <button
+                    type="button"
+                    onClick={handleOpenWeb3}
+                    aria-label={`Account: ${account.displayName}`}
+                    className="flex h-9 items-center gap-1.5 rounded-lg border border-sky-400/45 bg-sky-500/15 px-2 text-xs font-semibold text-sky-100 cursor-pointer touch-manipulation"
+                  >
+                    {account.photoURL ? (
+                      <img
+                        src={account.photoURL}
+                        alt={account.displayName}
+                        referrerPolicy="no-referrer"
+                        className="h-5 w-5 rounded-full object-cover border border-white/20"
+                      />
+                    ) : (
+                      <User className="h-3.5 w-3.5 text-sky-300" />
+                    )}
+                    <span className="max-w-[68px] truncate">{account.displayName}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!authReady || web3Busy !== null}
+                    onClick={handleSignInGoogle}
+                    className="flex h-9 items-center gap-1 rounded-lg bg-white px-2.5 text-[11px] font-bold text-slate-900 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap touch-manipulation"
+                  >
+                    <User className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                    {web3Busy === 'google_auth' ? '...' : 'Sign In'}
+                  </button>
+                )}
               </div>
             </div>
 
+            {/* Row 2 (Desktop right cluster + Mobile compact 5-world bar) */}
             <div className="flex flex-wrap items-center gap-2">
-              {/* Quick Instrumental Beat Toggle */}
+              {/* Desktop Music Toggle */}
               <button
                 type="button"
                 onClick={handleToggleMusic}
@@ -1012,26 +1066,26 @@ export default function App() {
                     ? `Beat: ${getMusicBeatLabel(save.settings.musicBeat, previewSceneId)}`
                     : 'Beats Muted'
                 }
-                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 touch-manipulation min-h-[36px] ${
+                className={`hidden sm:flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 touch-manipulation min-h-[36px] ${
                   save.settings.musicEnabled
                     ? 'border-emerald-400/45 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25'
                     : 'border-white/12 bg-[#0c1220]/90 text-slate-400 hover:text-slate-200 hover:bg-white/5'
                 }`}
               >
                 <Music className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden sm:inline">
+                <span>
                   {save.settings.musicEnabled
                     ? getMusicBeatLabel(save.settings.musicBeat, previewSceneId)
                     : 'Beats Off'}
                 </span>
               </button>
 
-              {/* Google Account Sign-In / Account Trigger (works seamlessly on desktop & mobile) */}
+              {/* Desktop Google Account Sign-In / Account Trigger */}
               {account ? (
                 <button
                   type="button"
                   onClick={handleOpenWeb3}
-                  className="flex items-center gap-2 rounded-lg border border-sky-400/45 bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-100 hover:bg-sky-500/25 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  className="hidden sm:flex items-center gap-2 rounded-lg border border-sky-400/45 bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-100 hover:bg-sky-500/25 transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 >
                   {account.photoURL ? (
                     <img
@@ -1050,15 +1104,15 @@ export default function App() {
                   type="button"
                   disabled={!authReady || web3Busy !== null}
                   onClick={handleSignInGoogle}
-                  className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0 touch-manipulation min-h-[36px]"
+                  className="hidden sm:flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0 touch-manipulation min-h-[36px]"
                 >
                   <User className="h-3.5 w-3.5 text-sky-600" />
                   {web3Busy === 'google_auth' ? 'Signing in...' : 'Sign in with Google'}
                 </button>
               )}
 
-              {/* 5 Yeti Worlds Preview Selector */}
-              <div className="flex flex-wrap items-center gap-1 rounded-lg border border-white/12 bg-[#0c1220]/90 p-1">
+              {/* 5 Yeti Worlds Preview Selector: neat 5-col single strip on mobile */}
+              <div className="grid w-full grid-cols-5 sm:flex sm:w-auto items-center gap-1 rounded-lg border border-white/12 bg-[#0c1220]/90 p-1">
                 {SCENE_ORDER.map((sid) => {
                   const active = previewSceneId === sid;
                   return (
@@ -1066,7 +1120,7 @@ export default function App() {
                       key={sid}
                       type="button"
                       onClick={() => handleScenePreview(sid)}
-                      className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      className={`rounded-md px-1.5 sm:px-2.5 py-1.5 text-[11px] sm:text-xs font-medium text-center transition-colors whitespace-nowrap truncate cursor-pointer touch-manipulation ${
                         active
                           ? 'bg-sky-400 text-slate-950 font-semibold'
                           : 'text-slate-300 hover:text-white hover:bg-white/5'
@@ -1083,9 +1137,9 @@ export default function App() {
 
           {/* Visible Google Auth Status / Mobile Fallback Banner on Menu Screen */}
           {web3Status && (
-            <div className="pointer-events-auto mx-auto mt-2 flex w-full max-w-2xl flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-400/35 bg-[#0c1220]/95 px-3.5 py-2.5 text-xs text-sky-100 shadow-lg">
-              <span className="flex-1 min-w-[200px]">{web3Status}</span>
-              <div className="flex items-center gap-2 shrink-0">
+            <div className="pointer-events-auto mx-auto mt-2 flex w-full max-w-2xl flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-400/35 bg-[#0c1220]/95 px-3 py-2 text-xs text-sky-100 shadow-lg">
+              <span className="flex-1 min-w-[160px]">{web3Status}</span>
+              <div className="flex items-center gap-1.5 shrink-0">
                 {!account && !isInEmbeddedIframe() && (
                   <button
                     type="button"
@@ -1099,7 +1153,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setWeb3Status(null)}
-                  className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-white/10 cursor-pointer whitespace-nowrap"
+                  className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-white/10 cursor-pointer whitespace-nowrap touch-manipulation"
                 >
                   Dismiss
                 </button>
@@ -1109,14 +1163,13 @@ export default function App() {
 
           {/* Bottom Unified Action Dock */}
           <footer className="pointer-events-auto mx-auto w-full max-w-2xl">
-            <div className="rounded-2xl border border-white/12 bg-[#0c1220]/90 p-3 sm:p-4 shadow-2xl">
-              <div className="mb-2.5 flex items-center justify-between text-xs text-slate-300 px-1 gap-2">
+            <div className="rounded-2xl border border-white/12 bg-[#0c1220]/92 p-2.5 sm:p-4 shadow-2xl">
+              <div className="mb-2 flex items-center justify-between text-[11px] sm:text-xs text-slate-300 px-1 gap-2">
                 <span className="truncate">
-                  Active Perk: <strong className="text-white">{equippedChar.perkName}</strong>
+                  Perk: <strong className="text-white">{equippedChar.perkName}</strong>
                   {save.equippedBoosters.length > 0 && (
-                    <span className="ml-2 text-amber-300 font-semibold">
-                      · {save.equippedBoosters.length} Booster
-                      {save.equippedBoosters.length > 1 ? 's' : ''} Armed
+                    <span className="ml-1.5 text-amber-300 font-semibold">
+                      · {save.equippedBoosters.length} Armed
                     </span>
                   )}
                 </span>
@@ -1125,62 +1178,71 @@ export default function App() {
                 </span>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <button
                   type="button"
                   onClick={handleStartGame}
-                  className="flex-1 min-w-[140px] flex items-center justify-center gap-2 rounded-xl bg-sky-400 px-5 py-3.5 font-[var(--font-display)] text-base font-bold text-slate-950 transition-transform active:scale-[0.98] hover:bg-sky-300 cursor-pointer whitespace-nowrap"
+                  className="w-full sm:flex-1 flex items-center justify-center gap-2 rounded-xl bg-sky-400 px-5 py-3 sm:py-3.5 font-[var(--font-display)] text-base font-bold text-slate-950 transition-transform active:scale-[0.98] hover:bg-sky-300 cursor-pointer whitespace-nowrap touch-manipulation min-h-[46px]"
                 >
                   <Play className="h-5 w-5 fill-current" />
                   Play Run
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleOpenStore}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-amber-400/35 bg-amber-500/12 px-4 py-3.5 text-sm font-semibold text-amber-200 transition-colors hover:bg-amber-500/20 cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  <ShoppingBag className="h-4 w-4 text-amber-300" />
-                  Store
-                </button>
+                <div className="grid grid-cols-4 sm:flex items-center gap-1.5 sm:gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenStore}
+                    className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 rounded-xl border border-amber-400/35 bg-amber-500/12 px-2 sm:px-4 py-2 sm:py-3.5 text-[11px] sm:text-sm font-semibold text-amber-200 transition-colors hover:bg-amber-500/20 cursor-pointer whitespace-nowrap touch-manipulation min-h-[44px]"
+                  >
+                    <ShoppingBag className="h-4 w-4 text-amber-300 shrink-0" />
+                    <span>Store</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={handleOpenCharacter}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-white/14 bg-white/5 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-white/10 cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  <User className="h-4 w-4 text-sky-300" />
-                  Yetis ({CHARACTERS.filter((c) => isCharacterUnlocked(save, c.id)).length}/{CHARACTERS.length})
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenCharacter}
+                    className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 rounded-xl border border-white/14 bg-white/5 px-2 sm:px-4 py-2 sm:py-3.5 text-[11px] sm:text-sm font-semibold text-white transition-colors hover:bg-white/10 cursor-pointer whitespace-nowrap touch-manipulation min-h-[44px]"
+                  >
+                    <User className="h-4 w-4 text-sky-300 shrink-0" />
+                    <span>
+                      Yetis{' '}
+                      <span className="hidden sm:inline">
+                        ({CHARACTERS.filter((c) => isCharacterUnlocked(save, c.id)).length}/{CHARACTERS.length})
+                      </span>
+                    </span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={handleOpenWeb3}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-3.5 text-sm font-semibold text-sky-200 transition-colors hover:bg-sky-500/20 cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  <Wallet className="h-4 w-4 text-sky-300" />
-                  Rewards
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenWeb3}
+                    className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 rounded-xl border border-sky-400/30 bg-sky-500/10 px-2 sm:px-4 py-2 sm:py-3.5 text-[11px] sm:text-sm font-semibold text-sky-200 transition-colors hover:bg-sky-500/20 cursor-pointer whitespace-nowrap touch-manipulation min-h-[44px]"
+                  >
+                    <Wallet className="h-4 w-4 text-sky-300 shrink-0" />
+                    <span>Rewards</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={handleOpenSettings}
-                  aria-label="Settings"
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-white/14 bg-white/5 px-3.5 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-white/10 cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  <Settings className="h-4 w-4 text-slate-300" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenSettings}
+                    aria-label="Settings"
+                    className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 rounded-xl border border-white/14 bg-white/5 px-2 sm:px-3.5 py-2 sm:py-3.5 text-[11px] sm:text-sm font-semibold text-white transition-colors hover:bg-white/10 cursor-pointer whitespace-nowrap touch-manipulation min-h-[44px]"
+                  >
+                    <Settings className="h-4 w-4 text-slate-300 shrink-0" />
+                    <span className="sm:hidden">Settings</span>
+                  </button>
+                </div>
               </div>
 
               {save.settings.showHints && (
-                <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
-                  <span>Enter / Space to start</span>
-                  <span aria-hidden="true">·</span>
-                  <span>A/D or Arrows move</span>
-                  <span aria-hidden="true">·</span>
-                  <span>Double Jump for Backflip</span>
-                  <span aria-hidden="true">·</span>
-                  <span>X Spin · Z Slash</span>
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-0.5 text-[11px] text-slate-400">
+                  <span className="sm:hidden">Swipe to move, jump &amp; slide · Tap to spin</span>
+                  <span className="hidden sm:inline">Enter / Space to start</span>
+                  <span aria-hidden="true" className="hidden sm:inline">·</span>
+                  <span className="hidden sm:inline">A/D or Arrows move</span>
+                  <span aria-hidden="true" className="hidden sm:inline">·</span>
+                  <span className="hidden sm:inline">Double Jump for Backflip</span>
+                  <span aria-hidden="true" className="hidden sm:inline">·</span>
+                  <span className="hidden sm:inline">X Spin · Z Slash</span>
                 </div>
               )}
             </div>
@@ -1190,45 +1252,48 @@ export default function App() {
 
       {/* ==================== 5-CHARACTER LOFI MYSTIC YETIS ROSTER ==================== */}
       {screen === 'character' && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 sm:p-6">
-          <header className="pointer-events-auto flex items-center justify-between gap-4">
+        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between safe-area-hud">
+          <header className="pointer-events-auto flex items-center justify-between gap-2">
             <button
               type="button"
               onClick={handleGoMenu}
-              className="flex items-center gap-1.5 rounded-xl border border-white/14 bg-[#0c1220]/90 px-4 py-2.5 text-sm font-semibold text-white hover:bg-white/10 transition-colors cursor-pointer"
+              className="flex items-center gap-1 rounded-xl border border-white/14 bg-[#0c1220]/90 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-white/10 transition-colors cursor-pointer touch-manipulation min-h-[40px]"
             >
               <ChevronLeft className="h-4 w-4" />
               Back
             </button>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
               <button
                 type="button"
                 onClick={handleOpenStore}
-                className="flex items-center gap-1.5 rounded-xl border border-amber-400/35 bg-[#0c1220]/90 px-3.5 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/15 transition-colors cursor-pointer whitespace-nowrap"
+                className="flex items-center gap-1.5 rounded-xl border border-amber-400/35 bg-[#0c1220]/90 px-3 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/15 transition-colors cursor-pointer whitespace-nowrap touch-manipulation min-h-[40px]"
               >
                 <ShoppingBag className="h-3.5 w-3.5" />
                 Store
               </button>
-              <div className="rounded-xl border border-white/12 bg-[#0c1220]/90 px-4 py-2 text-sm font-semibold text-amber-300 tabular-nums flex items-center gap-2">
-                <Coins className="h-4 w-4" />
-                {save.coinBalance.toLocaleString()} SUI Coins
+              <div className="rounded-xl border border-white/12 bg-[#0c1220]/90 px-3 py-2 text-xs sm:text-sm font-semibold text-amber-300 tabular-nums flex items-center gap-1.5 whitespace-nowrap">
+                <Coins className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                <span>{save.coinBalance.toLocaleString()}</span>
+                <span className="hidden sm:inline">SUI Coins</span>
               </div>
             </div>
           </header>
 
-          {/* Bottom 5-Yeti Roster Dock (keeps live 3D Yeti showcase centered & unobstructed!) */}
-          <section className="pointer-events-auto mx-auto w-full max-w-4xl rounded-2xl border border-white/12 bg-[#0c1220]/92 p-4 shadow-2xl">
+          {/* Bottom 5-Yeti Roster Dock (compact horizontal strip on mobile so 3D Yeti stays unobstructed) */}
+          <section className="pointer-events-auto mx-auto w-full max-w-4xl rounded-2xl border border-white/12 bg-[#0c1220]/92 p-3 sm:p-4 shadow-2xl">
             {/* Focused Yeti Details Row */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-white/10">
-              <div>
-                <div className="flex items-center gap-2.5">
-                  <h2 className="font-[var(--font-display)] text-lg font-extrabold text-white">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 pb-2.5 mb-2.5 sm:pb-3 sm:mb-3 border-b border-white/10">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-[var(--font-display)] text-base sm:text-lg font-extrabold text-white truncate">
                     {previewChar.name}
                   </h2>
-                  <span className="text-xs text-slate-400">{previewChar.tier}</span>
+                  <span className="text-[11px] sm:text-xs text-slate-400 shrink-0">
+                    {previewChar.tier}
+                  </span>
                 </div>
-                <p className="text-xs text-slate-300 mt-0.5">
+                <p className="text-[11px] sm:text-xs text-slate-300 mt-0.5 line-clamp-2 sm:line-clamp-none">
                   <span className="font-semibold" style={{ color: previewChar.accentHex }}>
                     {previewChar.perkName}:
                   </span>{' '}
@@ -1236,21 +1301,21 @@ export default function App() {
                 </p>
               </div>
 
-              <div className="text-xs tabular-nums shrink-0">
+              <div className="text-[11px] sm:text-xs tabular-nums shrink-0">
                 {save.selectedCharacter === previewChar.id ? (
                   <span className="font-semibold text-sky-300">Equipped for Next Run</span>
                 ) : isCharacterUnlocked(save, previewChar.id) ? (
                   <span className="text-emerald-300 font-semibold">Unlocked</span>
                 ) : (
                   <span className="text-amber-300 font-semibold">
-                    Needs {Math.max(0, previewChar.unlockCoins - save.lifetimeCoins).toLocaleString()} more SUI coins
+                    Needs {Math.max(0, previewChar.unlockCoins - save.lifetimeCoins).toLocaleString()} more SUI
                   </span>
                 )}
               </div>
             </div>
 
-            {/* 5 Character Cards Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {/* 5 Character Cards: smooth horizontal snap strip on mobile, 5-col grid on tablet/desktop */}
+            <div className="flex sm:grid sm:grid-cols-5 gap-2 overflow-x-auto snap-x snap-mandatory touch-pan-x no-scrollbar pb-0.5">
               {CHARACTERS.map((char) => {
                 const unlocked = isCharacterUnlocked(save, char.id);
                 const equipped = save.selectedCharacter === char.id;
@@ -1261,7 +1326,7 @@ export default function App() {
                     key={char.id}
                     type="button"
                     onClick={() => handleSelectCharacter(char.id, unlocked)}
-                    className={`flex flex-col items-center rounded-xl border p-2.5 text-center transition-colors cursor-pointer ${
+                    className={`min-w-[104px] sm:min-w-0 shrink-0 snap-start flex flex-col items-center rounded-xl border p-2 sm:p-2.5 text-center transition-colors cursor-pointer touch-manipulation ${
                       previewing
                         ? 'border-sky-400 bg-sky-500/15'
                         : unlocked
@@ -1274,7 +1339,7 @@ export default function App() {
                         src={char.portraitUrl}
                         alt={char.name}
                         accentHex={char.accentHex}
-                        className={`h-14 w-14 ${!unlocked ? 'opacity-65' : ''}`}
+                        className={`h-11 w-11 sm:h-14 sm:w-14 ${!unlocked ? 'opacity-65' : ''}`}
                       />
                       {!unlocked && (
                         <div className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#090d16] border border-white/20">
@@ -1283,10 +1348,10 @@ export default function App() {
                       )}
                     </div>
 
-                    <div className="mt-2 font-[var(--font-display)] text-xs font-bold text-white whitespace-nowrap truncate max-w-full">
+                    <div className="mt-1.5 sm:mt-2 font-[var(--font-display)] text-[11px] sm:text-xs font-bold text-white whitespace-nowrap truncate max-w-full">
                       {char.name}
                     </div>
-                    <div className="mt-0.5 text-[11px] tabular-nums">
+                    <div className="mt-0.5 text-[10px] sm:text-[11px] tabular-nums">
                       {equipped ? (
                         <span className="font-semibold text-sky-300">Equipped</span>
                       ) : unlocked ? (
@@ -1344,8 +1409,8 @@ export default function App() {
 
       {/* ==================== SETTINGS SCREEN ==================== */}
       {screen === 'settings' && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#060a14]/75 p-4">
-          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/14 bg-[#0d1424] p-6 shadow-2xl">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#060a14]/75 p-3 sm:p-4">
+          <div className="w-full max-w-md max-h-[88dvh] overflow-y-auto overscroll-contain touch-pan-y rounded-2xl border border-white/14 bg-[#0d1424] p-4 sm:p-6 shadow-2xl">
             <div className="flex items-center justify-between pb-4 border-b border-white/10">
               <h2 className="font-[var(--font-display)] text-xl font-bold text-white">Settings</h2>
               <button
@@ -1531,94 +1596,35 @@ export default function App() {
         </div>
       )}
 
-      {/* ==================== 3D PERFECT STUNT REPLAY OVERLAY ==================== */}
-      {screen === 'playing' && hud.replayActive && (
-        <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between">
-          {/* Top Cinema Letterbox Strip */}
-          <div className="pointer-events-auto flex items-center justify-between gap-4 border-b border-white/10 bg-[#060a14]/92 px-4 sm:px-6 py-2.5">
-            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 min-w-0">
-              <span className="font-[var(--font-display)] text-sm font-extrabold tracking-wide text-amber-300 whitespace-nowrap shrink-0">
-                Perfect Stunt Replay
-              </span>
-              {hud.replayStuntLabel && (
-                <>
-                  <span aria-hidden="true" className="text-slate-500">·</span>
-                  <span className="text-sm font-semibold text-white truncate">
-                    {hud.replayStuntLabel}
-                  </span>
-                </>
-              )}
-              <span aria-hidden="true" className="text-slate-500 hidden sm:inline">·</span>
-              <span className="hidden sm:inline text-xs font-mono text-slate-300 tabular-nums whitespace-nowrap shrink-0">
-                Last {hud.replayRecordedSec.toFixed(1)}s{hud.replaySlowMo ? ' · Slow-Mo' : ''}
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => engineRef.current?.skipReplay()}
-              className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/8 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <FastForward className="h-3.5 w-3.5 text-amber-300" />
-              Skip
-            </button>
-          </div>
-
-          {/* Bottom Cinema Letterbox Strip + Replay Timeline Scrubber */}
-          <div className="border-t border-white/10 bg-[#060a14]/92 px-4 sm:px-6 py-2.5">
-            <div className="mx-auto max-w-2xl">
-              <div className="flex items-center justify-between text-[11px] font-mono text-slate-300 tabular-nums mb-1.5">
-                <span>
-                  {hud.replaySlowMo ? 'Slow-Motion Angle' : '3D Action Camera'}
-                </span>
-                <span>
-                  {hud.replayProgress > 0.85
-                    ? 'Resuming run...'
-                    : `${(hud.replayProgress * hud.replayRecordedSec).toFixed(1)}s / ${hud.replayRecordedSec.toFixed(1)}s`}
-                </span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/12">
-                <div
-                  className={`h-full origin-left transition-colors ${
-                    hud.replaySlowMo ? 'bg-amber-400' : 'bg-sky-400'
-                  }`}
-                  style={{ transform: `scaleX(${Math.max(0.02, hud.replayProgress)})` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ==================== IN-GAME HUD ==================== */}
-      {(screen === 'playing' || screen === 'paused') && !hud.replayActive && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-3 sm:p-5">
+      {(screen === 'playing' || screen === 'paused') && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between safe-area-hud">
           {/* Top HUD Row */}
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start justify-between gap-2 sm:gap-3">
             {/* Left: Active Yeti Portrait + Score, Distance & SUI Coins */}
-            <div className="flex items-center gap-2.5 rounded-xl border border-white/12 bg-[#0b101d]/88 px-3 py-2">
+            <div className="flex items-center gap-2 sm:gap-2.5 rounded-xl border border-white/12 bg-[#0b101d]/88 px-2.5 py-1.5 sm:px-3 sm:py-2 min-w-0">
               <CharacterAvatar
                 src={activeRunChar.portraitUrl}
                 alt={activeRunChar.name}
                 accentHex={activeRunChar.accentHex}
                 className="h-10 w-10 hidden sm:block"
               />
-              <div className="min-w-[132px]">
-                <div className="font-[var(--font-mono)] text-2xl font-bold leading-none text-white tabular-nums">
+              <div className="min-w-[84px] sm:min-w-[132px]">
+                <div className="font-[var(--font-mono)] text-lg sm:text-2xl font-bold leading-none text-white tabular-nums">
                   {hud.score.toLocaleString()}
                 </div>
-                <div className="mt-1 flex items-center gap-2 text-xs text-slate-300 tabular-nums">
+                <div className="mt-1 flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs text-slate-300 tabular-nums">
                   <span>{hud.distance.toLocaleString()}m</span>
                   <span aria-hidden="true">·</span>
-                  <span className="flex items-center gap-1 text-amber-300 font-semibold">
-                    <Coins className="h-3.5 w-3.5" />
+                  <span className="flex items-center gap-0.5 sm:gap-1 text-amber-300 font-semibold">
+                    <Coins className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                     {hud.runCoins}
                   </span>
                 </div>
               </div>
             </div>
 
-            {/* Center: Current Scene & 1500m Zone Progress */}
+            {/* Center: Current Scene & Zone Progress (Desktop) */}
             <div className="hidden sm:flex flex-col items-center rounded-xl border border-white/12 bg-[#0b101d]/88 px-4 py-2 min-w-[170px]">
               <span className="text-xs font-semibold tracking-wide text-slate-100">
                 {hud.sceneName}
@@ -1631,16 +1637,16 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right: Lives, Void Shield & Pause */}
-            <div className="pointer-events-auto flex items-center gap-2">
+            {/* Right: Lives, Void Shield, Music & Pause */}
+            <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
               <div
-                className="flex items-center gap-1.5 rounded-xl border border-white/12 bg-[#0b101d]/88 px-3 py-2.5"
+                className="flex items-center gap-1 sm:gap-1.5 rounded-xl border border-white/12 bg-[#0b101d]/88 px-2 py-2 sm:px-3 sm:py-2.5"
                 aria-label={`${hud.lives} of ${hud.maxLives} lives remaining`}
               >
                 {Array.from({ length: hud.maxLives }).map((_, idx) => (
                   <Heart
                     key={idx}
-                    className={`h-4 w-4 ${
+                    className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${
                       idx < hud.lives
                         ? 'fill-rose-500 text-rose-400'
                         : 'fill-slate-800 text-slate-600'
@@ -1649,7 +1655,7 @@ export default function App() {
                 ))}
                 {hud.shields > 0 && (
                   <Shield
-                    className="h-4 w-4 fill-violet-400/30 text-violet-300 ml-0.5"
+                    className="h-3.5 w-3.5 sm:h-4 sm:w-4 fill-violet-400/30 text-violet-300 ml-0.5"
                     aria-label="Void Shield active"
                   />
                 )}
@@ -1664,7 +1670,7 @@ export default function App() {
                     ? `Beat: ${getMusicBeatLabel(save.settings.musicBeat, hud.sceneId)}`
                     : 'Beats Muted'
                 }
-                className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors cursor-pointer ${
+                className={`flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl border transition-colors cursor-pointer touch-manipulation ${
                   save.settings.musicEnabled
                     ? 'border-emerald-400/45 bg-[#0b101d]/88 text-emerald-300 hover:bg-emerald-500/15'
                     : 'border-white/12 bg-[#0b101d]/88 text-slate-500 hover:text-slate-300 hover:bg-white/10'
@@ -1677,29 +1683,44 @@ export default function App() {
                 type="button"
                 onClick={handleTogglePause}
                 aria-label={screen === 'paused' ? 'Resume game' : 'Pause game'}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/12 bg-[#0b101d]/88 text-white hover:bg-white/10 transition-colors cursor-pointer"
+                className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl border border-white/12 bg-[#0b101d]/88 text-white hover:bg-white/10 transition-colors cursor-pointer touch-manipulation"
               >
                 {screen === 'paused' ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
               </button>
             </div>
           </div>
 
+          {/* Slim Mobile World & Portal Progress Strip */}
+          <div className="mt-1.5 flex sm:hidden items-center justify-center">
+            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#0b101d]/80 px-2.5 py-1">
+              <span className="text-[10px] font-semibold tracking-wide text-slate-200 whitespace-nowrap">
+                {hud.sceneName}
+              </span>
+              <div className="h-1 w-16 overflow-hidden rounded-full bg-white/15">
+                <div
+                  className="h-full bg-sky-400 transition-transform duration-150 origin-left"
+                  style={{ transform: `scaleX(${Math.max(0.04, hud.sceneProgress)})` }}
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Center-Top Notifications */}
-          <div className="flex flex-col items-center gap-2 mt-2">
+          <div className="flex flex-col items-center gap-1.5 sm:gap-2 mt-1.5 sm:mt-2">
             {hud.portalDestination && (
-              <div className="rounded-xl border border-sky-300/50 bg-[#0b101d]/92 px-4 py-1.5 font-[var(--font-display)] text-xs font-bold tracking-wider uppercase text-sky-200">
+              <div className="rounded-xl border border-sky-300/50 bg-[#0b101d]/92 px-3.5 py-1 sm:px-4 sm:py-1.5 font-[var(--font-display)] text-[11px] sm:text-xs font-bold tracking-wider uppercase text-sky-200">
                 Portal Ahead · {hud.portalDestination}
               </div>
             )}
 
             {hud.sceneToast && (
-              <div className="rounded-xl border border-sky-400/35 bg-[#0b101d]/90 px-5 py-1.5 font-[var(--font-display)] text-base font-bold text-sky-200 tracking-tight">
+              <div className="rounded-xl border border-sky-400/35 bg-[#0b101d]/90 px-4 py-1 sm:px-5 sm:py-1.5 font-[var(--font-display)] text-sm sm:text-base font-bold text-sky-200 tracking-tight">
                 {hud.sceneToast}
               </div>
             )}
 
             {hud.stuntBanner && (
-              <div className="rounded-lg border border-amber-400/35 bg-[#0b101d]/90 px-3.5 py-1 text-xs font-bold text-amber-300 tracking-wide">
+              <div className="rounded-lg border border-amber-400/35 bg-[#0b101d]/90 px-3 py-1 text-[11px] sm:text-xs font-bold text-amber-300 tracking-wide text-center max-w-[90vw] truncate">
                 {hud.stuntBanner}
               </div>
             )}
@@ -1713,10 +1734,10 @@ export default function App() {
 
             <div className="flex flex-wrap items-center justify-center gap-2">
               {hud.swordRemaining > 0 && (
-                <div className="flex items-center gap-2 rounded-xl border border-sky-400/40 bg-[#0b101d]/90 px-3 py-1.5">
-                  <Sword className="h-4 w-4 text-sky-300" />
-                  <div className="w-24">
-                    <div className="flex justify-between text-[11px] font-semibold text-sky-200 tabular-nums">
+                <div className="flex items-center gap-2 rounded-xl border border-sky-400/40 bg-[#0b101d]/90 px-2.5 py-1 sm:px-3 sm:py-1.5">
+                  <Sword className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-sky-300" />
+                  <div className="w-20 sm:w-24">
+                    <div className="flex justify-between text-[10px] sm:text-[11px] font-semibold text-sky-200 tabular-nums">
                       <span>Sword</span>
                       <span>{hud.swordRemaining.toFixed(1)}s</span>
                     </div>
@@ -1733,10 +1754,10 @@ export default function App() {
               )}
 
               {hud.starRemaining > 0 && (
-                <div className="flex items-center gap-2 rounded-xl border border-amber-400/40 bg-[#0b101d]/90 px-3 py-1.5">
-                  <Sparkles className="h-4 w-4 text-amber-300" />
-                  <div className="w-24">
-                    <div className="flex justify-between text-[11px] font-semibold text-amber-200 tabular-nums">
+                <div className="flex items-center gap-2 rounded-xl border border-amber-400/40 bg-[#0b101d]/90 px-2.5 py-1 sm:px-3 sm:py-1.5">
+                  <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-amber-300" />
+                  <div className="w-20 sm:w-24">
+                    <div className="flex justify-between text-[10px] sm:text-[11px] font-semibold text-amber-200 tabular-nums">
                       <span>Star Flight</span>
                       <span>{hud.starRemaining.toFixed(1)}s</span>
                     </div>
@@ -1757,10 +1778,10 @@ export default function App() {
           <div className="flex-1" />
 
           {/* Bottom Controls Hint Bar & Sword Slash Touch Trigger */}
-          <div className="flex items-end justify-between gap-3">
+          <div className="flex items-end justify-between gap-2 sm:gap-3">
             {save.settings.showHints ? (
               <div
-                className={`mx-auto rounded-lg border px-3.5 py-1.5 text-[11px] text-center transition-colors ${
+                className={`mx-auto rounded-lg border px-3 py-1.5 text-[10px] sm:text-[11px] text-center transition-colors ${
                   hud.starRemaining > 0
                     ? 'border-amber-400/35 bg-[#0b101d]/88 text-amber-200'
                     : 'border-white/10 bg-[#0b101d]/82 text-slate-300'
@@ -1772,7 +1793,7 @@ export default function App() {
                       A/D Barrel Roll · Space/W Sky Loop · S/↓ Sky Swoop · X Star Corkscrew
                     </span>
                     <span className="sm:hidden">
-                      Swipe Barrel Roll / Sky Loop / Swoop · Tap Corkscrew
+                      Swipe Barrel Roll / Loop / Swoop · Tap Corkscrew
                     </span>
                   </>
                 ) : (
@@ -1781,7 +1802,7 @@ export default function App() {
                       A/D or ←/→ Move · Space/W Jump (2x Flip) · S/↓ Slide · X Spin · Z Slash · Esc Pause
                     </span>
                     <span className="sm:hidden">
-                      Swipe Move / Jump / Slide · Tap Jump or Air Spin
+                      Swipe Move / Jump / Slide · Tap Jump or Spin
                     </span>
                   </>
                 )}
@@ -1794,10 +1815,11 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => engineRef.current?.triggerSlash()}
-                className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-sky-400/60 bg-sky-500/25 px-4 py-2.5 text-xs font-bold text-sky-100 active:scale-95 cursor-pointer"
+                className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-sky-400/60 bg-sky-500/25 px-4 py-3 text-xs font-bold text-sky-100 active:scale-95 cursor-pointer whitespace-nowrap shrink-0 touch-manipulation min-h-[44px]"
               >
                 <Sword className="h-4 w-4" />
-                Slash (Z)
+                <span>Slash</span>
+                <span className="hidden sm:inline">(Z)</span>
               </button>
             )}
           </div>
@@ -1807,7 +1829,7 @@ export default function App() {
       {/* ==================== PAUSE MODAL ==================== */}
       {screen === 'paused' && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#060a14]/75 p-4">
-          <div className="w-full max-w-xs rounded-2xl border border-white/14 bg-[#0d1424] p-6 text-center shadow-2xl">
+          <div className="w-full max-w-xs max-h-[88dvh] overflow-y-auto overscroll-contain touch-pan-y rounded-2xl border border-white/14 bg-[#0d1424] p-5 sm:p-6 text-center shadow-2xl">
             <h2 className="font-[var(--font-display)] text-2xl font-extrabold text-white">
               Paused
             </h2>
@@ -1818,21 +1840,21 @@ export default function App() {
               <button
                 type="button"
                 onClick={handleTogglePause}
-                className="rounded-xl bg-sky-400 py-3 text-sm font-bold text-slate-950 hover:bg-sky-300 cursor-pointer"
+                className="rounded-xl bg-sky-400 py-3 text-sm font-bold text-slate-950 hover:bg-sky-300 cursor-pointer touch-manipulation"
               >
                 Resume Run
               </button>
               <button
                 type="button"
                 onClick={handleStartGame}
-                className="rounded-xl border border-white/14 bg-white/5 py-3 text-sm font-semibold text-white hover:bg-white/10 cursor-pointer"
+                className="rounded-xl border border-white/14 bg-white/5 py-3 text-sm font-semibold text-white hover:bg-white/10 cursor-pointer touch-manipulation"
               >
                 Restart
               </button>
               <button
                 type="button"
                 onClick={handleGoMenu}
-                className="rounded-xl border border-white/10 py-2.5 text-xs font-semibold text-slate-300 hover:bg-white/5 cursor-pointer"
+                className="rounded-xl border border-white/10 py-2.5 text-xs font-semibold text-slate-300 hover:bg-white/5 cursor-pointer touch-manipulation"
               >
                 Main Menu
               </button>
@@ -1844,7 +1866,7 @@ export default function App() {
       {/* ==================== GAME OVER MODAL ==================== */}
       {screen === 'gameover' && lastRun && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#060a14]/78 p-4">
-          <div className="w-full max-w-sm rounded-2xl border border-white/14 bg-[#0d1424] p-6 shadow-2xl">
+          <div className="w-full max-w-sm max-h-[90dvh] overflow-y-auto overscroll-contain touch-pan-y rounded-2xl border border-white/14 bg-[#0d1424] p-5 sm:p-6 shadow-2xl">
             <div className="text-center">
               {lastRun.isNewBest && (
                 <div className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-300 mb-1">
@@ -1852,7 +1874,7 @@ export default function App() {
                   New High Score
                 </div>
               )}
-              <h2 className="font-[var(--font-display)] text-3xl font-extrabold text-white">
+              <h2 className="font-[var(--font-display)] text-2xl sm:text-3xl font-extrabold text-white">
                 Run Complete
               </h2>
               <p className="mt-1 text-xs text-slate-400">

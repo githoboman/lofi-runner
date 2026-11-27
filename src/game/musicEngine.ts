@@ -266,8 +266,8 @@ export class MusicBeatEngine {
           targetCutoff = 18000;
           break;
         case 'replay':
-          targetGain = this.replaySlowMo ? 0.28 : 0.34;
-          targetCutoff = this.replaySlowMo ? 680 : 3200;
+          targetGain = 0.36;
+          targetCutoff = 16000;
           break;
         case 'paused':
           targetGain = 0.16;
@@ -305,12 +305,10 @@ export class MusicBeatEngine {
 
   private getCurrentStepDuration(): number {
     const baseBpm = BEAT_BPM[this.activeBeat];
-    // Subtle tempo energy lift as runner accelerates, gently slower during slow-mo replay
+    // Subtle tempo energy lift as runner accelerates
     let tempoMult = 1.0;
     if (this.mood === 'playing') {
       tempoMult = 1.0 + this.speedRatio * 0.065;
-    } else if (this.mood === 'replay' && this.replaySlowMo) {
-      tempoMult = 0.88;
     }
     const effectiveBpm = baseBpm * tempoMult;
     return 60 / effectiveBpm / 4; // 16th-note duration in seconds

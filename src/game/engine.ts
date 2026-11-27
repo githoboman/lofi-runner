@@ -96,11 +96,12 @@ export class RunnerEngine {
   // Loop & lifecycle
   private frameId = 0;
   private disposed = false;
+  private resizeObserver: ResizeObserver | null = null;
   private lastTimestamp = 0;
   private elapsed = 0;
   private hudSyncAccum = 0;
   private trailAccum = 0;
-  private hitStopTimer = 0; // Crisp micro-freeze on realistic box/obstacle slices!
+  private hitStopTimer = 0;
 
   // Game mode & settings
   private screen: GameScreen = 'menu';
@@ -309,6 +310,12 @@ export class RunnerEngine {
     }
 
     window.addEventListener('resize', this.handleResize);
+    window.addEventListener('orientationchange', this.handleResize);
+    window.visualViewport?.addEventListener('resize', this.handleResize);
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.handleResize());
+      this.resizeObserver.observe(container);
+    }
     window.addEventListener('keydown', this.handleKeyDown, { passive: false });
     canvas.addEventListener('touchstart', this.handleTouchStart, { passive: false });
     canvas.addEventListener('touchmove', this.handleTouchMove, { passive: false });
@@ -774,25 +781,13 @@ export class RunnerEngine {
   }
 
   private triggerPerfectStunt(stuntLabel: string): void {
-    if (this.replayActive || this.screen !== 'playing') return;
+    if (this.screen !== 'playing') return;
     const charCfg = getCharacterById(this.characterId);
     const perfectBonus = Math.round(150 * charCfg.perks.stuntBonusMult);
     this.addBonus(perfectBonus, `PERFECT · ${stuntLabel} +${perfectBonus}`);
-    this.cameraFovKick = Math.max(this.cameraFovKick, 6.2);
+    this.cameraFovKick = Math.max(this.cameraFovKick, 5.2);
     this.pools.spawnBurst(this.playerX, this.playerY + 1.25, 0, 0xfde047, 18);
     this.pools.spawnBurst(this.playerX, this.playerY + 1.1, 0, charCfg.accentColor, 14);
-
-    // Queue a brief follow-through so the 5-second recording captures the stunt apex, then launch 3D replay
-    if (
-      this.pendingPerfectReplayTimer <= 0 &&
-      this.replayCooldown <= 0 &&
-      !this.portal.isActive() &&
-      this.fadeOpacity <= 0.05 &&
-      this.replayRecorder.hasEnoughFootage()
-    ) {
-      this.pendingPerfectStuntLabel = stuntLabel;
-      this.pendingPerfectReplayTimer = 0.34;
-    }
   }
 
   private beginPerfectReplay(stuntLabel: string): void {
@@ -876,8 +871,7 @@ export class RunnerEngine {
   }
 
   private onRealBoxCutImpact(): void {
-    this.hitStopTimer = 0.036; // Crisp 36ms impact freeze-frame for realistic weighty cut!
-    this.cameraShake = Math.max(this.cameraShake, 0.34);
+    this.cameraShake = Math.max(this.cameraShake, 0.28);
     this.cameraFovKick = Math.max(this.cameraFovKick, 4.5);
     this.yeti.triggerSlashImpact();
     this.villain.triggerDodgeBack();
@@ -1070,24 +1064,25 @@ export class RunnerEngine {
 
     // Smooth, living showcase camera orbit with gentle breathing elevation
     const camX = isCharScreen
-      ? Math.sin(this.elapsed * 0.58) * 1.15
-      : Math.sin(this.elapsed * 0.42) * 1.05;
+      ? Math.sin(this.elapsed * 0.58) * (aspect < 0.85 ? 0.72 : 1.15)
+      : Math.sin(this.elapsed * 0.42) * (aspect < 0.85 ? 0.68 : 1.05);
     const camY =
-      (isCharScreen ? 1.82 : 2.15) + Math.sin(this.elapsed * 1.15) * 0.08;
+      (isCharScreen ? (aspect < 0.85 ? 1.88 : 1.82) : aspect < 0.85 ? 2.2 : 2.15) +
+      Math.sin(this.elapsed * 1.15) * 0.07;
     const camZ = isCharScreen
       ? aspect < 0.85
-        ? 4.95
+        ? 5.35
         : 3.95
       : aspect < 0.85
-        ? 6.45
+        ? 6.75
         : 5.25;
 
     _camTargetPos.set(camX, camY, camZ);
     this.camera.position.lerp(_camTargetPos, 1 - Math.exp(-5.5 * dt));
 
     _camLookAt.set(
-      Math.sin(this.elapsed * 0.42) * 0.12,
-      isCharScreen ? 1.24 : 1.42,
+      Math.sin(this.elapsed * 0.42) * 0.1,
+      isCharScreen ? (aspect < 0.85 ? 1.12 : 1.24) : aspect < 0.85 ? 1.28 : 1.42,
       -1.2,
     );
     this.camera.lookAt(_camLookAt);
@@ -1491,20 +1486,20 @@ export class RunnerEngine {
 
     // Dynamic chase camera framing the Yeti, slide chutes & towering horizon Titans
     const isPortrait = this.camera.aspect < 0.85;
-    const baseCamZ = isPortrait ? 10.6 : 8.5;
-    const baseCamY = isPortrait ? 5.25 : 4.55;
+    const baseCamZ = isPortrait ? 11.2 : 8.5;
+    const baseCamY = isPortrait ? 5.35 : 4.55;
     const shakeX = this.cameraShake > 0 ? (Math.random() - 0.5) * this.cameraShake * 0.7 : 0;
     const shakeY = this.cameraShake > 0 ? (Math.random() - 0.5) * this.cameraShake * 0.5 : 0;
 
     _camTargetPos.set(
-      this.playerX * 0.62 + shakeX,
+      this.playerX * (isPortrait ? 0.54 : 0.62) + shakeX,
       baseCamY + this.playerY * 0.55 + shakeY,
       baseCamZ + (this.starTimer > 0 || isCyberSpaceFloat ? 1.5 : 0),
     );
     this.camera.position.lerp(_camTargetPos, 1 - Math.exp(-9 * dt));
 
     const targetFov =
-      (isPortrait ? 74 : 60) + speedRatio * 7 + (this.starTimer > 0 ? 5.5 : 0) + this.cameraFovKick;
+      (isPortrait ? 75 : 60) + speedRatio * 7 + (this.starTimer > 0 ? 5.5 : 0) + this.cameraFovKick;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 6, dt);
       this.camera.updateProjectionMatrix();
@@ -1898,6 +1893,10 @@ export class RunnerEngine {
     window.clearTimeout(this.frameId);
 
     window.removeEventListener('resize', this.handleResize);
+    window.removeEventListener('orientationchange', this.handleResize);
+    window.visualViewport?.removeEventListener('resize', this.handleResize);
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     window.removeEventListener('keydown', this.handleKeyDown);
     const canvas = this.renderer.domElement;
     canvas.removeEventListener('touchstart', this.handleTouchStart);

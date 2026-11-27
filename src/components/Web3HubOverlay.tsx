@@ -236,24 +236,24 @@ export function Web3HubOverlay({
           : 'Save Sui Address / Name';
 
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#060a14]/84 p-3 sm:p-6">
-      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/14 bg-[#0d1424] shadow-2xl">
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#060a14]/84 p-2.5 sm:p-6">
+      <div className="flex max-h-[92dvh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/14 bg-[#0d1424] shadow-2xl">
         {/* Top Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3.5 sm:px-6">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-white/10 px-3.5 py-3 sm:px-6 sm:py-3.5">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={onClose}
-              className="flex items-center gap-1 rounded-lg border border-white/14 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              className="flex items-center gap-1 rounded-lg border border-white/14 bg-white/5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap shrink-0 touch-manipulation"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
               Back
             </button>
-            <div>
-              <h2 className="font-[var(--font-display)] text-lg sm:text-xl font-extrabold text-white leading-tight">
+            <div className="min-w-0">
+              <h2 className="font-[var(--font-display)] text-base sm:text-xl font-extrabold text-white leading-tight truncate">
                 Account &amp; Sui Rewards
               </h2>
-              <p className="text-[11px] text-slate-400">
+              <p className="hidden sm:block text-[11px] text-slate-400">
                 Sign in with Google to sync progress across desktop &amp; mobile. No wallet needed to play.
               </p>
             </div>
@@ -268,7 +268,7 @@ export function Web3HubOverlay({
                   key={net}
                   type="button"
                   onClick={() => onSwitchNetwork(net)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`rounded-lg px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-semibold capitalize transition-colors cursor-pointer whitespace-nowrap touch-manipulation ${
                     active
                       ? 'bg-sky-400 text-slate-950 font-bold'
                       : 'text-slate-300 hover:text-white hover:bg-white/5'
@@ -282,7 +282,7 @@ export function Web3HubOverlay({
         </div>
 
         {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+        <div className="flex-1 overflow-y-auto overscroll-contain touch-pan-y p-3.5 sm:p-6 space-y-4 sm:space-y-5">
           {/* Google Account Card */}
           <section className="rounded-xl border border-white/12 bg-[#111a2e] p-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -454,10 +454,10 @@ export function Web3HubOverlay({
                     spellCheck={false}
                     className="flex-1 rounded-lg border border-white/15 bg-[#0f172a] px-3 py-2.5 font-[var(--font-mono)] text-xs text-white placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
                   />
-                  <div className="flex gap-2 shrink-0">
+                  <div className="flex flex-col sm:flex-row gap-2 shrink-0">
                     <button
                       type="submit"
-                      className="rounded-lg bg-sky-400 px-4 py-2.5 text-xs font-bold text-slate-950 hover:bg-sky-300 cursor-pointer whitespace-nowrap"
+                      className="w-full sm:w-auto rounded-lg bg-sky-400 px-4 py-2.5 text-xs font-bold text-slate-950 hover:bg-sky-300 cursor-pointer whitespace-nowrap touch-manipulation"
                     >
                       {promptActionLabel}
                     </button>
@@ -467,7 +467,7 @@ export function Web3HubOverlay({
                         setPendingAction(null);
                         setInputError(null);
                       }}
-                      className="rounded-lg border border-white/14 bg-white/5 px-3 py-2.5 text-xs font-semibold text-slate-300 hover:bg-white/10 cursor-pointer whitespace-nowrap"
+                      className="w-full sm:w-auto rounded-lg border border-white/14 bg-white/5 px-3 py-2.5 text-xs font-semibold text-slate-300 hover:bg-white/10 cursor-pointer whitespace-nowrap touch-manipulation"
                     >
                       Cancel
                     </button>
