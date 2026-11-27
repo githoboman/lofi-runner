@@ -22,9 +22,12 @@ import {
   STAR_FLY_HEIGHT,
   STUMBLE_DURATION,
   SWORD_DURATION,
+  computeProgressiveSpeed,
   getCharacterById,
 } from './config';
+import { MusicBeatEngine } from './musicEngine';
 import { EntityPoolManager } from './pools';
+import { RunReplayRecorder, type PoolReplayEntities } from './replayRecorder';
 import { WorldManager } from './scenes';
 import { SpatialWorldAudioManager } from './spatialAudio';
 import type {
@@ -33,6 +36,7 @@ import type {
   DifficultyId,
   GameScreen,
   HudSnapshot,
+  MusicBeatId,
   SceneId,
 } from './types';
 import { VillainChaserController } from './villainChaser';
@@ -86,6 +90,7 @@ export class RunnerEngine {
   private villain: VillainChaserController;
   private pools: EntityPoolManager;
   public readonly audio: SoundManager;
+  public readonly music: MusicBeatEngine;
   private spatialAudio: SpatialWorldAudioManager;
 
   // Loop & lifecycle
@@ -150,6 +155,7 @@ export class RunnerEngine {
   // Scene progression, Hunter outrun & World Slide / Space Float state
   private sceneIndex = 0;
   private nextPortalDistance = SCENE_SWITCH_DISTANCE;
+  private nextSpeedSurgeDistance = 1500;
   private cleanRunDistance = 0;
   private hunterActive = true;
   private worldSlideActive = false;
@@ -166,6 +172,29 @@ export class RunnerEngine {
   private cameraFovKick = 0;
   private yetiSource: 'procedural' | 'glb' = 'procedural';
 
+  // 5-second rolling Perfect Stunt 3D Replay Recorder & Playback state
+  private replayRecorder = new RunReplayRecorder();
+  private replayActive = false;
+  private replayStuntLabel: string | null = null;
+  private replayProgress = 0;
+  private replayRecordedSec = 0;
+  private replaySlowMo = false;
+  private replayCooldown = 0;
+  private replayCameraSide: -1 | 1 = 1;
+  private replayVisualElapsed = 0;
+  private replaySceneId: SceneId = 'frost_sanctuary';
+  private replaySlideMode = false;
+  private pendingPerfectReplayTimer = 0;
+  private pendingPerfectStuntLabel: string | null = null;
+  private liveReplayRestore: {
+    sceneId: SceneId;
+    worldSlideActive: boolean;
+    playerX: number;
+    playerY: number;
+    entities: PoolReplayEntities;
+  } | null = null;
+  private closeSlideAwardedObs = new WeakSet<object>();
+
   // Touch gesture state
   private touchStartX = 0;
   private touchStartY = 0;
@@ -177,6 +206,8 @@ export class RunnerEngine {
     initialCharacter: CharacterId,
     initialDifficulty: DifficultyId,
     sfxEnabled: boolean,
+    musicEnabled: boolean,
+    musicBeat: MusicBeatId,
     callbacks: EngineCallbacks,
   ) {
     this.container = container;
@@ -187,6 +218,9 @@ export class RunnerEngine {
 
     this.audio = new SoundManager();
     this.audio.setEnabled(sfxEnabled);
+    this.music = new MusicBeatEngine();
+    this.music.setEnabled(musicEnabled);
+    this.music.setBeatSelection(musicBeat);
     this.spatialAudio = new SpatialWorldAudioManager();
     this.spatialAudio.setEnabled(sfxEnabled);
 
@@ -267,6 +301,8 @@ export class RunnerEngine {
     this.world.activateScene(startWorld);
     this.pools.setScene(startWorld);
     this.spatialAudio.setWorld(startWorld);
+    this.music.setWorld(startWorld);
+    this.music.setState('menu', 0, false, false);
 
     if (!this.isSoftwareGl) {
       this.renderer.compile(this.scene, this.camera);
@@ -311,9 +347,33 @@ export class RunnerEngine {
       this.worldSlideActive = false;
       this.world.setSlideMode(false);
       this.pools.setSlideMode(false);
+      this.replayActive = false;
+      this.replayStuntLabel = null;
+      this.replayProgress = 0;
+      this.replayRecordedSec = 0;
+      this.replaySlowMo = false;
+      this.pendingPerfectReplayTimer = 0;
+      this.pendingPerfectStuntLabel = null;
+      this.liveReplayRestore = null;
+      this.replayRecorder.reset();
     }
     this.spatialAudio.setActivity(screen === 'playing', 0, this.playerX);
+    if (screen === 'playing') {
+      this.music.unlock();
+      this.music.setState(this.replayActive ? 'replay' : 'playing', 0, this.starTimer > 0, this.replaySlowMo);
+    } else if (screen === 'paused') {
+      this.music.setState('paused', 0, false, false);
+    } else if (screen === 'gameover') {
+      this.music.setState('gameover', 0, false, false);
+    } else {
+      this.music.setState('menu', 0, false, false);
+    }
     this.emitHud();
+  }
+
+  public skipReplay(): void {
+    if (!this.replayActive) return;
+    this.finishReplay();
   }
 
   public setLoadout(loadout: ActiveRunLoadout): void {
@@ -342,6 +402,20 @@ export class RunnerEngine {
     }
   }
 
+  public setMusicEnabled(enabled: boolean): void {
+    this.music.setEnabled(enabled);
+  }
+
+  public setMusicBeat(beat: MusicBeatId): void {
+    this.music.setBeatSelection(beat);
+    this.music.unlock();
+  }
+
+  public unlockAudio(): void {
+    this.spatialAudio.unlock();
+    this.music.unlock();
+  }
+
   public previewScene(sceneId: SceneId): void {
     const idx = SCENE_ORDER.indexOf(sceneId);
     if (idx >= 0) {
@@ -350,6 +424,8 @@ export class RunnerEngine {
       this.pools.setScene(sceneId);
       this.spatialAudio.unlock();
       this.spatialAudio.setWorld(sceneId);
+      this.music.unlock();
+      this.music.setWorld(sceneId);
       this.emitHud();
     }
   }
@@ -406,9 +482,23 @@ export class RunnerEngine {
     this.cameraFovKick = hasHeadstart ? 6.5 : 0;
     this.trailAccum = 0;
 
+    // Reset 5-second rolling stunt replay recorder
+    this.replayRecorder.reset();
+    this.replayActive = false;
+    this.replayStuntLabel = null;
+    this.replayProgress = 0;
+    this.replayRecordedSec = 0;
+    this.replaySlowMo = false;
+    this.replayCooldown = 1.5;
+    this.pendingPerfectReplayTimer = 0;
+    this.pendingPerfectStuntLabel = null;
+    this.liveReplayRestore = null;
+    this.closeSlideAwardedObs = new WeakSet<object>();
+
     const homeIdx = Math.max(0, SCENE_ORDER.indexOf(charCfg.homeWorldId));
     this.sceneIndex = homeIdx;
     this.nextPortalDistance = SCENE_SWITCH_DISTANCE;
+    this.nextSpeedSurgeDistance = 1500;
     this.cleanRunDistance = hasHeadstart ? HUNTER_OUTRUN_DISTANCE : 0;
     this.hunterActive = !hasHeadstart;
     this.worldSlideActive = false;
@@ -453,11 +543,14 @@ export class RunnerEngine {
     this.spatialAudio.unlock();
     this.spatialAudio.setWorld(startSceneId);
     this.spatialAudio.setActivity(true, 0, 0);
+    this.music.unlock();
+    this.music.setWorld(startSceneId);
+    this.music.setState('playing', 0, hasHeadstart, false);
     this.emitHud();
   }
 
   public moveLeft(): void {
-    if (this.screen !== 'playing') return;
+    if (this.screen !== 'playing' || this.replayActive) return;
     if (this.lane > 0) {
       this.lane--;
       this.yeti.triggerLaneSnap(-1);
@@ -478,7 +571,7 @@ export class RunnerEngine {
   }
 
   public moveRight(): void {
-    if (this.screen !== 'playing') return;
+    if (this.screen !== 'playing' || this.replayActive) return;
     if (this.lane < 2) {
       this.lane++;
       this.yeti.triggerLaneSnap(1);
@@ -499,7 +592,7 @@ export class RunnerEngine {
   }
 
   public triggerJump(): void {
-    if (this.screen !== 'playing') return;
+    if (this.screen !== 'playing' || this.replayActive) return;
     const charCfg = getCharacterById(this.characterId);
 
     // While Star Flying -> perform an exhilarating Sky Loop-de-Loop stunt!
@@ -514,6 +607,7 @@ export class RunnerEngine {
         this.cameraFovKick = 6.5;
         this.pools.spawnBurst(this.playerX, this.playerY + 1.1, 0, 0xfacc15, 16);
         this.pools.spawnBurst(this.playerX, this.playerY + 1.1, 0, charCfg.accentColor, 10);
+        this.triggerPerfectStunt('Sky Loop');
       }
       return;
     }
@@ -526,6 +620,7 @@ export class RunnerEngine {
         const pts = Math.round(45 * charCfg.perks.stuntBonusMult);
         this.addBonus(pts, `Zero-G Flip +${pts}`);
         this.audio.play('flip');
+        this.triggerPerfectStunt('Zero-G Flip');
       }
       return;
     }
@@ -551,11 +646,19 @@ export class RunnerEngine {
       this.audio.play('flip');
       this.cameraFovKick = 3.5;
       this.pools.spawnBurst(this.playerX, this.playerY + 0.6, 0, charCfg.accentColor, 12);
+
+      // Perfect Backflip if vaulting cleanly over an obstacle or executing at high jump apex!
+      const vaultingObs = this.hasNearbyLaneObstacle(-12.5, 2.2);
+      if (vaultingObs) {
+        this.triggerPerfectStunt('Backflip Vault');
+      } else if (this.playerY >= 1.4) {
+        this.triggerPerfectStunt('Apex Backflip');
+      }
     }
   }
 
   public triggerSlide(): void {
-    if (this.screen !== 'playing') return;
+    if (this.screen !== 'playing' || this.replayActive) return;
     const charCfg = getCharacterById(this.characterId);
 
     // While Star Flying -> perform a Low Sky Swoop to scoop lower coin trails!
@@ -593,7 +696,7 @@ export class RunnerEngine {
   }
 
   public triggerSpin(): void {
-    if (this.screen !== 'playing') return;
+    if (this.screen !== 'playing' || this.replayActive) return;
     const charCfg = getCharacterById(this.characterId);
 
     // While Star Flying -> blazing Meteor Corkscrew spin!
@@ -606,22 +709,30 @@ export class RunnerEngine {
         this.audio.play('flyStunt');
         this.cameraFovKick = 5.5;
         this.pools.spawnBurst(this.playerX, this.playerY + 1.0, 0, 0xfde047, 16);
+        this.triggerPerfectStunt('Star Corkscrew');
       }
       return;
     }
 
     if (!this.isGrounded && this.spinTimer <= 0) {
+      const chainedFromFlip = this.flipTimer > 0;
       this.spinTimer = SPIN_DURATION;
       this.velocityY = Math.max(this.velocityY, 4.2 + charCfg.perks.spinHangBoost);
       const pts = Math.round(40 * charCfg.perks.stuntBonusMult);
       this.addBonus(pts, `Tail-Whip Spin +${pts}`);
       this.audio.play('spin');
       this.pools.spawnBurst(this.playerX, this.playerY + 1.0, 0, charCfg.accentColor, 10);
+
+      if (chainedFromFlip) {
+        this.triggerPerfectStunt('Aerial Flip-Spin');
+      } else if (this.hasNearbyLaneObstacle(-11.5, 2.2)) {
+        this.triggerPerfectStunt('Tail-Whip Vault');
+      }
     }
   }
 
   public triggerSlash(): void {
-    if (this.screen !== 'playing') return;
+    if (this.screen !== 'playing' || this.replayActive) return;
     if (this.slashTimer > 0) return;
 
     const charCfg = getCharacterById(this.characterId);
@@ -647,8 +758,121 @@ export class RunnerEngine {
       }
       if (slicedAny) {
         this.onRealBoxCutImpact();
+        this.triggerPerfectStunt(comboStep === 2 ? 'Whirlwind Cut' : 'Blade Cleave');
       }
     }
+  }
+
+  private hasNearbyLaneObstacle(minZ: number, maxZ: number): boolean {
+    for (const obs of this.pools.obstacles) {
+      if (!obs.active || obs.sliced) continue;
+      if (obs.lane === this.lane && obs.z >= minZ && obs.z <= maxZ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private triggerPerfectStunt(stuntLabel: string): void {
+    if (this.replayActive || this.screen !== 'playing') return;
+    const charCfg = getCharacterById(this.characterId);
+    const perfectBonus = Math.round(150 * charCfg.perks.stuntBonusMult);
+    this.addBonus(perfectBonus, `PERFECT · ${stuntLabel} +${perfectBonus}`);
+    this.cameraFovKick = Math.max(this.cameraFovKick, 6.2);
+    this.pools.spawnBurst(this.playerX, this.playerY + 1.25, 0, 0xfde047, 18);
+    this.pools.spawnBurst(this.playerX, this.playerY + 1.1, 0, charCfg.accentColor, 14);
+
+    // Queue a brief follow-through so the 5-second recording captures the stunt apex, then launch 3D replay
+    if (
+      this.pendingPerfectReplayTimer <= 0 &&
+      this.replayCooldown <= 0 &&
+      !this.portal.isActive() &&
+      this.fadeOpacity <= 0.05 &&
+      this.replayRecorder.hasEnoughFootage()
+    ) {
+      this.pendingPerfectStuntLabel = stuntLabel;
+      this.pendingPerfectReplayTimer = 0.34;
+    }
+  }
+
+  private beginPerfectReplay(stuntLabel: string): void {
+    if (this.replayActive || this.screen !== 'playing') return;
+    const liveSceneId = SCENE_ORDER[this.sceneIndex];
+    const entities = this.pools.captureReplayEntities();
+    const started = this.replayRecorder.beginReplay(stuntLabel);
+    if (!started) return;
+
+    this.liveReplayRestore = {
+      sceneId: liveSceneId,
+      worldSlideActive: this.worldSlideActive,
+      playerX: this.playerX,
+      playerY: this.playerY,
+      entities,
+    };
+    this.replayActive = true;
+    this.replayStuntLabel = stuntLabel;
+    this.replayProgress = 0;
+    this.replayRecordedSec = this.replayRecorder.getRecordedDuration();
+    this.replaySlowMo = false;
+    this.replayVisualElapsed = this.elapsed;
+    this.replaySceneId = liveSceneId;
+    this.replaySlideMode = this.worldSlideActive;
+    // Orbit camera toward open center of track so side architecture never blocks the hero view
+    this.replayCameraSide = this.playerX >= 0 ? -1 : 1;
+    this.stuntBanner = null;
+    this.stuntBannerTimer = 0;
+    this.yeti.clearSwordTrail();
+    this.spatialAudio.setActivity(true, 0.25, this.playerX);
+    this.music.setState('replay', 0.2, false, false);
+    this.emitHud();
+  }
+
+  private finishReplay(): void {
+    if (!this.replayActive) return;
+    this.replayRecorder.stopReplay();
+    this.replayRecorder.reset();
+    this.replayActive = false;
+    this.replayStuntLabel = null;
+    this.replayProgress = 0;
+    this.replayRecordedSec = 0;
+    this.replaySlowMo = false;
+    this.replayCooldown = 12.0;
+
+    if (this.liveReplayRestore) {
+      const restore = this.liveReplayRestore;
+      this.liveReplayRestore = null;
+      if (this.replaySceneId !== restore.sceneId) {
+        this.world.activateScene(restore.sceneId);
+        this.pools.setScene(restore.sceneId);
+      }
+      if (this.replaySlideMode !== restore.worldSlideActive) {
+        this.world.setSlideMode(restore.worldSlideActive);
+        this.pools.setSlideMode(restore.worldSlideActive);
+      }
+      this.pools.restoreLiveEntities(restore.entities);
+      this.playerX = restore.playerX;
+      this.prevPlayerX = restore.playerX;
+      this.playerY = restore.playerY;
+      this.yeti.root.position.set(this.playerX, 0, 0);
+    }
+
+    // Brief grace invulnerability so resuming from the 3D replay camera always feels fair and smooth
+    this.invulnTimer = Math.max(this.invulnTimer, 1.65);
+    this.cameraFovKick = 3.2;
+    this.stuntBanner = 'Back to Run!';
+    this.stuntBannerTimer = 0.85;
+
+    // Snap camera close to chase vantage so transition back to forward view is instant and readable
+    const isPortrait = this.camera.aspect < 0.85;
+    this.camera.position.set(
+      this.playerX * 0.62,
+      (isPortrait ? 5.25 : 4.55) + this.playerY * 0.55,
+      (isPortrait ? 10.6 : 8.5) + (this.starTimer > 0 ? 1.5 : 0),
+    );
+    _camLookAt.set(this.playerX * 0.45, 1.95 + this.playerY * 0.62, -16);
+    this.camera.lookAt(_camLookAt);
+    this.music.setState('playing', 0.3, this.starTimer > 0, false);
+    this.emitHud();
   }
 
   private onRealBoxCutImpact(): void {
@@ -671,8 +895,16 @@ export class RunnerEngine {
   private handleKeyDown = (e: KeyboardEvent): void => {
     const code = e.code;
     this.spatialAudio.unlock();
+    this.music.unlock();
 
     if (this.screen === 'playing') {
+      if (this.replayActive) {
+        if (['Space', 'Enter', 'Escape'].includes(code)) {
+          e.preventDefault();
+          this.skipReplay();
+        }
+        return;
+      }
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(code)) {
         e.preventDefault();
       }
@@ -694,6 +926,7 @@ export class RunnerEngine {
 
   private handleTouchStart = (e: TouchEvent): void => {
     this.spatialAudio.unlock();
+    this.music.unlock();
     if (this.screen !== 'playing' || e.touches.length === 0) return;
     e.preventDefault();
     const t = e.touches[0];
@@ -704,7 +937,7 @@ export class RunnerEngine {
   };
 
   private handleTouchMove = (e: TouchEvent): void => {
-    if (this.screen !== 'playing' || this.touchHandledSwipe || e.touches.length === 0) return;
+    if (this.screen !== 'playing' || this.replayActive || this.touchHandledSwipe || e.touches.length === 0) return;
     e.preventDefault();
     const t = e.touches[0];
     const dx = t.clientX - this.touchStartX;
@@ -726,6 +959,10 @@ export class RunnerEngine {
   private handleTouchEnd = (e: TouchEvent): void => {
     if (this.screen !== 'playing') return;
     e.preventDefault();
+    if (this.replayActive) {
+      this.skipReplay();
+      return;
+    }
     const elapsed = performance.now() - this.touchStartTime;
     if (!this.touchHandledSwipe && elapsed < 260) {
       if (this.starTimer > 0) {
@@ -803,7 +1040,11 @@ export class RunnerEngine {
     this.elapsed += dt;
 
     if (this.screen === 'playing') {
-      this.updatePlaying(dt);
+      if (this.replayActive) {
+        this.updateReplay(dt);
+      } else {
+        this.updatePlaying(dt);
+      }
     } else if (
       this.screen === 'menu' ||
       this.screen === 'character' ||
@@ -913,12 +1154,25 @@ export class RunnerEngine {
     const diff = DIFFICULTIES[this.difficultyId];
     const charCfg = getCharacterById(this.characterId);
 
-    this.speed = Math.min(diff.maxSpeed, diff.startSpeed + this.distance * diff.speedRampPerUnit);
+    this.speed = computeProgressiveSpeed(diff, this.distance);
     const slideSpeedMult = this.worldSlideActive ? 1.15 : 1.0;
     const activeSpeed = this.speed * slideSpeedMult * (this.starTimer > 0 ? 1.24 : 1.0);
     const stepDist = activeSpeed * dt;
     this.distance += stepDist;
     this.score += stepDist * 1.5 * diff.scoreMultiplier;
+
+    // Subtle speed-surge feedback on sustained long runs
+    if (this.distance >= this.nextSpeedSurgeDistance) {
+      const isOverdrive = this.speed >= diff.maxSpeed;
+      this.nextSpeedSurgeDistance += 1500;
+      this.cameraFovKick = Math.max(this.cameraFovKick, isOverdrive ? 5.5 : 3.8);
+      if (!this.stuntBanner) {
+        this.stuntBanner = isOverdrive
+          ? `Overdrive Pace · ${Math.round(this.speed)} m/s`
+          : `Speed Surge · ${Math.round(this.speed)} m/s`;
+        this.stuntBannerTimer = 1.45;
+      }
+    }
 
     // Hunter drops off after running cleanly for HUNTER_OUTRUN_DISTANCE (returns only if player hits an obstacle!)
     this.cleanRunDistance += stepDist;
@@ -992,6 +1246,7 @@ export class RunnerEngine {
       this.pools.setSlideMode(false);
       this.pools.clearObstaclesInRange(-52, 8);
       this.spatialAudio.setWorld(nextId);
+      this.music.setWorld(nextId);
 
       const theme = SCENE_PORTAL_THEME[nextId];
       this.portalWarpColor = theme.flashHex;
@@ -1046,10 +1301,15 @@ export class RunnerEngine {
       this.cameraFovKick = THREE.MathUtils.damp(this.cameraFovKick, 0, 7, dt);
     }
 
-    // Crisp, responsive lateral lane damping tuned for higher Yeti running speed
+    // Crisp, responsive lateral lane damping that tightens smoothly as progressive speed climbs
+    const speedRatioPre = THREE.MathUtils.clamp(
+      (activeSpeed - diff.startSpeed) / Math.max(1, diff.maxSpeed + 16 - diff.startSpeed),
+      0,
+      1,
+    );
     this.prevPlayerX = this.playerX;
     const targetX = LANE_X[this.lane];
-    this.playerX = THREE.MathUtils.damp(this.playerX, targetX, 21, dt);
+    this.playerX = THREE.MathUtils.damp(this.playerX, targetX, 21 + speedRatioPre * 8, dt);
     const laneVelocity = (this.playerX - this.prevPlayerX) / Math.max(dt, 0.001);
 
     const activeSceneNow = SCENE_ORDER[this.sceneIndex];
@@ -1128,11 +1388,12 @@ export class RunnerEngine {
     else if (this.worldSlideActive) animState = 'worldSlide';
 
     const speedRatio = THREE.MathUtils.clamp(
-      (activeSpeed - diff.startSpeed) / Math.max(1, diff.maxSpeed - diff.startSpeed),
+      (activeSpeed - diff.startSpeed) / Math.max(1, diff.maxSpeed + 16 - diff.startSpeed),
       0,
-      1,
+      1.2,
     );
     this.spatialAudio.setActivity(true, speedRatio, this.playerX);
+    this.music.setState('playing', speedRatio, this.starTimer > 0, false);
 
     const flyBarrelProgress =
       this.flyBarrelTimer > 0 ? 1 - this.flyBarrelTimer / FLY_BARREL_DURATION : 0;
@@ -1181,6 +1442,53 @@ export class RunnerEngine {
       isMenuPreview: false,
     });
 
+    if (this.replayCooldown > 0) {
+      this.replayCooldown = Math.max(0, this.replayCooldown - dt);
+    }
+
+    // Record compact 30 Hz rolling 5-second snapshot for Perfect Stunt 3D Replay
+    if (this.replayRecorder.shouldSample(dt)) {
+      this.replayRecorder.pushFrame({
+        time: this.elapsed,
+        sceneId: activeSceneNow,
+        worldSlideActive: this.worldSlideActive,
+        playerX: this.playerX,
+        playerY: this.playerY,
+        velocityY: this.velocityY,
+        laneVelocity,
+        activeSpeed,
+        speedRatio,
+        animState,
+        flipProgress: this.flipTimer > 0 ? 1 - this.flipTimer / this.flipDuration : 0,
+        spinProgress: this.spinTimer > 0 ? 1 - this.spinTimer / SPIN_DURATION : 0,
+        slashProgress: this.slashTimer > 0 ? 1 - this.slashTimer / SLASH_DURATION : 0,
+        slashComboIndex: (this.slashComboIndex + 2) % 3,
+        stumbleProgress: this.stumbleTimer > 0 ? 1 - this.stumbleTimer / STUMBLE_DURATION : 0,
+        flyBarrelProgress,
+        flyBarrelDir: this.flyBarrelDir,
+        flyLoopProgress,
+        flySwoopProgress,
+        swordActive: this.swordTimer > 0,
+        starActive: this.starTimer > 0,
+        shieldActive: this.shields > 0,
+        isChasing: this.hunterActive && !this.worldSlideActive,
+        isPlayerSliding: this.slideTimer > 0,
+        isPlayerFlying: this.starTimer > 0 || isCyberSpaceFloat,
+        entities: this.pools.captureReplayEntities(),
+      });
+    }
+
+    // Launch brief 3D replay right after the Perfect Stunt follow-through apex completes
+    if (this.pendingPerfectReplayTimer > 0) {
+      this.pendingPerfectReplayTimer = Math.max(0, this.pendingPerfectReplayTimer - dt);
+      if (this.pendingPerfectReplayTimer === 0 && this.pendingPerfectStuntLabel) {
+        const label = this.pendingPerfectStuntLabel;
+        this.pendingPerfectStuntLabel = null;
+        this.beginPerfectReplay(label);
+        if (this.replayActive) return;
+      }
+    }
+
     // Dynamic chase camera framing the Yeti, slide chutes & towering horizon Titans
     const isPortrait = this.camera.aspect < 0.85;
     const baseCamZ = isPortrait ? 10.6 : 8.5;
@@ -1209,6 +1517,146 @@ export class RunnerEngine {
     if (this.hudSyncAccum >= 0.05 || this.fadeOpacity > 0) {
       this.hudSyncAccum = 0;
       this.emitHud();
+    }
+  }
+
+  private updateReplay(dt: number): void {
+    const sample = this.replayRecorder.step(dt);
+    if (!sample) {
+      this.finishReplay();
+      return;
+    }
+
+    const { frame, nextFrame, alpha, progress, isSlowMo, playbackRate, done } = sample;
+    const scaledDt = Math.min(0.05, dt * playbackRate);
+    this.replayVisualElapsed += scaledDt;
+    this.replayProgress = progress;
+    this.replaySlowMo = isSlowMo;
+    this.music.setState('replay', frame.speedRatio, frame.starActive, isSlowMo);
+
+    // Sync biome/slide visuals if the 5-second clip crossed a transition
+    if (frame.sceneId !== this.replaySceneId) {
+      this.replaySceneId = frame.sceneId;
+      this.world.activateScene(frame.sceneId);
+      this.pools.setScene(frame.sceneId);
+    }
+    if (frame.worldSlideActive !== this.replaySlideMode) {
+      this.replaySlideMode = frame.worldSlideActive;
+      this.world.setSlideMode(frame.worldSlideActive);
+      this.pools.setSlideMode(frame.worldSlideActive);
+    }
+
+    const interpX = nextFrame
+      ? THREE.MathUtils.lerp(frame.playerX, nextFrame.playerX, alpha)
+      : frame.playerX;
+    const interpY = nextFrame
+      ? THREE.MathUtils.lerp(frame.playerY, nextFrame.playerY, alpha)
+      : frame.playerY;
+    const interpVelY = nextFrame
+      ? THREE.MathUtils.lerp(frame.velocityY, nextFrame.velocityY, alpha)
+      : frame.velocityY;
+    const interpLaneVel = nextFrame
+      ? THREE.MathUtils.lerp(frame.laneVelocity, nextFrame.laneVelocity, alpha)
+      : frame.laneVelocity;
+
+    const lerpCycle = (a: number, b: number): number =>
+      nextFrame && b >= a ? THREE.MathUtils.lerp(a, b, alpha) : a;
+
+    // Scroll world & apply interpolated pooled obstacles/coins/powerups
+    this.world.update(scaledDt, frame.activeSpeed, this.replayVisualElapsed, interpX);
+    this.pools.applyReplayEntities(
+      frame.entities,
+      nextFrame ? nextFrame.entities : null,
+      alpha,
+      this.replayVisualElapsed,
+    );
+
+    // Drive Yeti rig with interpolated recorded kinematics
+    this.yeti.root.position.set(interpX, 0, 0);
+    this.yeti.update({
+      dt: scaledDt,
+      elapsed: this.replayVisualElapsed,
+      state: frame.animState,
+      speedRatio: frame.speedRatio,
+      forwardSpeed: frame.activeSpeed,
+      laneVelocity: interpLaneVel,
+      yPos: interpY,
+      velocityY: interpVelY,
+      flipProgress: lerpCycle(frame.flipProgress, nextFrame?.flipProgress ?? frame.flipProgress),
+      spinProgress: lerpCycle(frame.spinProgress, nextFrame?.spinProgress ?? frame.spinProgress),
+      slashProgress: lerpCycle(frame.slashProgress, nextFrame?.slashProgress ?? frame.slashProgress),
+      slashComboIndex: frame.slashComboIndex,
+      stumbleProgress: lerpCycle(
+        frame.stumbleProgress,
+        nextFrame?.stumbleProgress ?? frame.stumbleProgress,
+      ),
+      flyBarrelProgress: lerpCycle(
+        frame.flyBarrelProgress,
+        nextFrame?.flyBarrelProgress ?? frame.flyBarrelProgress,
+      ),
+      flyBarrelDir: frame.flyBarrelDir,
+      flyLoopProgress: lerpCycle(
+        frame.flyLoopProgress,
+        nextFrame?.flyLoopProgress ?? frame.flyLoopProgress,
+      ),
+      flySwoopProgress: lerpCycle(
+        frame.flySwoopProgress,
+        nextFrame?.flySwoopProgress ?? frame.flySwoopProgress,
+      ),
+      swordActive: frame.swordActive,
+      starActive: frame.starActive,
+      shieldActive: frame.shieldActive,
+      invulnerable: false,
+      invulnTimer: 0,
+      isMenuPreview: false,
+    });
+
+    this.villain.update({
+      dt: scaledDt,
+      elapsed: this.replayVisualElapsed,
+      playerX: interpX,
+      playerY: interpY,
+      isPlayerSliding: frame.isPlayerSliding,
+      isPlayerFlying: frame.isPlayerFlying,
+      speedRatio: frame.speedRatio,
+      isChasing: frame.isChasing,
+      isGameOver: false,
+      isMenuPreview: false,
+    });
+
+    // Dramatic sweeping 3D side-orbit / low-angle hero replay camera
+    const smoothP = progress * progress * (3 - 2 * progress);
+    const orbitAngle = THREE.MathUtils.lerp(0.68, -0.58, smoothP);
+    const isPortrait = this.camera.aspect < 0.85;
+    const radius = (isSlowMo ? 5.05 : 5.75) * (isPortrait ? 1.18 : 1.0);
+    const camX = interpX + this.replayCameraSide * Math.cos(orbitAngle) * radius;
+    const camY = Math.max(1.25, interpY + 1.55 + Math.sin(smoothP * Math.PI) * 0.45);
+    const camZ = Math.sin(orbitAngle) * radius + 0.55;
+
+    _camTargetPos.set(camX, camY, camZ);
+    if (progress < 0.04) {
+      this.camera.position.copy(_camTargetPos);
+    } else {
+      this.camera.position.lerp(_camTargetPos, 1 - Math.exp(-10 * dt));
+    }
+
+    const replayFov = (isPortrait ? 60 : 50) + (isSlowMo ? -3 : 3);
+    if (Math.abs(this.camera.fov - replayFov) > 0.05) {
+      this.camera.fov = THREE.MathUtils.damp(this.camera.fov, replayFov, 7, dt);
+      this.camera.updateProjectionMatrix();
+    }
+
+    _camLookAt.set(interpX, interpY + 1.18, -0.35);
+    this.camera.lookAt(_camLookAt);
+
+    this.hudSyncAccum += dt;
+    if (this.hudSyncAccum >= 0.04) {
+      this.hudSyncAccum = 0;
+      this.emitHud();
+    }
+
+    if (done) {
+      this.finishReplay();
     }
   }
 
@@ -1331,6 +1779,19 @@ export class RunnerEngine {
           this.handleObstacleHit(obs);
           break;
         }
+
+        // Perfect close-call slide right underneath an overhead barrier!
+        if (
+          !hit &&
+          obs.kind === 'overhead' &&
+          this.slideTimer > 0 &&
+          obs.z > -0.35 &&
+          obs.z < 1.35 &&
+          !this.closeSlideAwardedObs.has(obs)
+        ) {
+          this.closeSlideAwardedObs.add(obs);
+          this.triggerPerfectStunt('Slide Under');
+        }
       }
     }
   }
@@ -1338,6 +1799,10 @@ export class RunnerEngine {
   private handleObstacleHit(obs: { lane: number; z: number; sliced: boolean }): void {
     const charCfg = getCharacterById(this.characterId);
     obs.sliced = true;
+
+    // Cancel any pending Perfect Stunt replay if the player crashes during follow-through
+    this.pendingPerfectReplayTimer = 0;
+    this.pendingPerfectStuntLabel = null;
 
     // Hitting an obstacle immediately brings the Hunter charging back into pursuit!
     this.cleanRunDistance = 0;
@@ -1369,6 +1834,7 @@ export class RunnerEngine {
       this.lives = 0;
       this.screen = 'gameover';
       this.spatialAudio.setActivity(false, 0, this.playerX);
+      this.music.setState('gameover', 0, false, false);
       this.audio.play('gameOver');
       const yieldMult = 1 + this.loadout.upgrades.yield * 0.15;
       const finalCoins = Math.round(this.runCoins * yieldMult);
@@ -1418,6 +1884,11 @@ export class RunnerEngine {
       sceneToast: this.sceneToast,
       villainThreat: this.villain.getThreatLevel(),
       yetiSource: this.yetiSource,
+      replayActive: this.replayActive,
+      replayStuntLabel: this.replayStuntLabel,
+      replayProgress: this.replayProgress,
+      replayRecordedSec: this.replayRecordedSec,
+      replaySlowMo: this.replaySlowMo,
     });
   }
 
@@ -1441,6 +1912,7 @@ export class RunnerEngine {
     this.villain.dispose();
     this.pools.dispose();
     this.audio.dispose();
+    this.music.dispose();
     this.spatialAudio.dispose();
     this.renderer.dispose();
     if (canvas.parentElement === this.container) {

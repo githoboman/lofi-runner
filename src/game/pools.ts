@@ -6,6 +6,7 @@ import {
   createHazardStripeTexture,
   createSuiCoinTexture,
 } from './textures';
+import type { PoolReplayEntities } from './replayRecorder';
 import type { DifficultyId, ObstacleKind, PowerupKind, SceneId } from './types';
 
 export interface PooledObstacle {
@@ -989,17 +990,18 @@ export class EntityPoolManager {
       if (!pauseObstacleSpawns) {
         extraStepSpacing = this.spawnReachablePattern(SPAWN_START_Z, starActive, distance, speed);
       }
-      // Difficulty-scaled spacing: Easy stays chill, Normal brisk arcade, Hard relentless dense gauntlets
-      const progressRamp = THREE.MathUtils.clamp(distance / 2200, 0, 1);
+      // Difficulty-scaled spacing that tightens progressively across long sustained runs
+      const progressRamp = THREE.MathUtils.clamp(distance / 4500, 0, 1);
       let baseSpacing: number;
       if (this.difficulty === 'hard') {
-        const timeWindow = THREE.MathUtils.lerp(0.55, 0.44, progressRamp);
-        baseSpacing = THREE.MathUtils.clamp(speed * timeWindow, 18.5, 29.5);
+        const timeWindow = THREE.MathUtils.lerp(0.55, 0.41, progressRamp);
+        baseSpacing = THREE.MathUtils.clamp(speed * timeWindow, 18.5, 34);
       } else if (this.difficulty === 'normal') {
-        const timeWindow = THREE.MathUtils.lerp(0.84, 0.72, progressRamp);
-        baseSpacing = THREE.MathUtils.clamp(speed * timeWindow, 25, 41);
+        const timeWindow = THREE.MathUtils.lerp(0.84, 0.66, progressRamp);
+        baseSpacing = THREE.MathUtils.clamp(speed * timeWindow, 25, 45);
       } else {
-        baseSpacing = THREE.MathUtils.clamp(speed * 1.02, 30, 52);
+        const timeWindow = THREE.MathUtils.lerp(1.02, 0.86, progressRamp);
+        baseSpacing = THREE.MathUtils.clamp(speed * timeWindow, 30, 54);
       }
       const slideMult =
         this.difficulty === 'hard' ? 1.02 : this.difficulty === 'normal' ? 1.12 : 1.22;
@@ -1373,6 +1375,198 @@ export class EntityPoolManager {
     slot.group.position.set(LANE_X[lane], 1.5, z);
     slot.swordView.visible = kind === 'sword';
     slot.starView.visible = kind === 'star';
+  }
+
+  public captureReplayEntities(): PoolReplayEntities {
+    const obstacles: PoolReplayEntities['obstacles'] = [];
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const obs = this.obstacles[i];
+      if (!obs.active) continue;
+      obstacles.push({
+        poolIndex: i,
+        kind: obs.kind,
+        lane: obs.lane,
+        z: obs.z,
+        sliced: obs.sliced,
+      });
+    }
+
+    const coins: PoolReplayEntities['coins'] = [];
+    for (let i = 0; i < this.coins.length; i++) {
+      const coin = this.coins[i];
+      if (!coin.active) continue;
+      coins.push({
+        poolIndex: i,
+        lane: coin.lane,
+        x: coin.x,
+        y: coin.y,
+        z: coin.z,
+        phase: coin.phase,
+      });
+    }
+
+    const powerups: PoolReplayEntities['powerups'] = [];
+    for (let i = 0; i < this.powerups.length; i++) {
+      const pu = this.powerups[i];
+      if (!pu.active) continue;
+      powerups.push({
+        poolIndex: i,
+        kind: pu.kind,
+        lane: pu.lane,
+        z: pu.z,
+      });
+    }
+
+    return { obstacles, coins, powerups };
+  }
+
+  public applyReplayEntities(
+    snap: PoolReplayEntities,
+    nextSnap: PoolReplayEntities | null,
+    alpha: number,
+    elapsed: number,
+  ): void {
+    // Hide all slots first, then position only the entities present in this replayed frame
+    for (const obs of this.obstacles) {
+      obs.group.visible = false;
+    }
+    for (const coin of this.coins) {
+      coin.mesh.visible = false;
+    }
+    for (const pu of this.powerups) {
+      pu.group.visible = false;
+    }
+
+    const isSpaceFloat = this.slideMode && this.currentScene === 'cyber_foundry';
+    const nextObsMap = nextSnap
+      ? new Map(nextSnap.obstacles.map((o) => [o.poolIndex, o]))
+      : null;
+    for (const item of snap.obstacles) {
+      const slot = this.obstacles[item.poolIndex];
+      if (!slot || item.sliced) continue;
+      const next = nextObsMap?.get(item.poolIndex);
+      const z =
+        next && next.kind === item.kind && next.lane === item.lane && Math.abs(next.z - item.z) < 25
+          ? THREE.MathUtils.lerp(item.z, next.z, alpha)
+          : item.z;
+      slot.kind = item.kind;
+      slot.lane = item.lane;
+      slot.z = z;
+      slot.sliced = item.sliced;
+      const ox = LANE_X[item.lane];
+      const oy =
+        this.slideMode && !isSpaceFloat
+          ? Math.max(0, 5.56 - Math.sqrt(Math.max(1, 5.6 * 5.6 - ox * ox)))
+          : isSpaceFloat
+            ? 1.5 + Math.sin(elapsed * 2.2 + item.lane) * 0.25
+            : 0;
+      slot.group.position.set(ox, oy, z);
+      slot.group.rotation.set(0, 0, 0);
+      slot.group.scale.set(1, 1, 1);
+      slot.group.visible = true;
+      this.syncObstacleVisual(slot);
+    }
+
+    const nextCoinMap = nextSnap
+      ? new Map(nextSnap.coins.map((c) => [c.poolIndex, c]))
+      : null;
+    for (const item of snap.coins) {
+      const slot = this.coins[item.poolIndex];
+      if (!slot) continue;
+      const next = nextCoinMap?.get(item.poolIndex);
+      const canLerp = next && Math.abs(next.z - item.z) < 25;
+      const x = canLerp ? THREE.MathUtils.lerp(item.x, next.x, alpha) : item.x;
+      const y = canLerp ? THREE.MathUtils.lerp(item.y, next.y, alpha) : item.y;
+      const z = canLerp ? THREE.MathUtils.lerp(item.z, next.z, alpha) : item.z;
+      slot.mesh.position.set(x, y + Math.sin(elapsed * 4.2 + item.phase) * 0.14, z);
+      slot.mesh.rotation.y = elapsed * 3.4 + item.phase;
+      slot.mesh.visible = true;
+    }
+
+    const nextPuMap = nextSnap
+      ? new Map(nextSnap.powerups.map((p) => [p.poolIndex, p]))
+      : null;
+    for (const item of snap.powerups) {
+      const slot = this.powerups[item.poolIndex];
+      if (!slot) continue;
+      const next = nextPuMap?.get(item.poolIndex);
+      const z =
+        next && next.kind === item.kind && next.lane === item.lane && Math.abs(next.z - item.z) < 25
+          ? THREE.MathUtils.lerp(item.z, next.z, alpha)
+          : item.z;
+      slot.group.position.set(LANE_X[item.lane], 1.55 + Math.sin(elapsed * 4.5) * 0.24, z);
+      slot.group.rotation.y = elapsed * 2.8;
+      slot.swordView.visible = item.kind === 'sword';
+      slot.starView.visible = item.kind === 'star';
+      slot.group.visible = true;
+    }
+  }
+
+  public restoreLiveEntities(snap: PoolReplayEntities): void {
+    for (const obs of this.obstacles) {
+      obs.active = false;
+      obs.sliced = false;
+      obs.sliceTimer = 0;
+      obs.group.visible = false;
+    }
+    for (const coin of this.coins) {
+      coin.active = false;
+      coin.mesh.visible = false;
+    }
+    for (const pu of this.powerups) {
+      pu.active = false;
+      pu.group.visible = false;
+    }
+
+    const isSpaceFloat = this.slideMode && this.currentScene === 'cyber_foundry';
+    for (const item of snap.obstacles) {
+      const slot = this.obstacles[item.poolIndex];
+      if (!slot) continue;
+      slot.active = true;
+      slot.kind = item.kind;
+      slot.lane = item.lane;
+      slot.z = item.z;
+      slot.sliced = item.sliced;
+      slot.sliceTimer = 0;
+      const ox = LANE_X[item.lane];
+      const oy =
+        this.slideMode && !isSpaceFloat
+          ? Math.max(0, 5.56 - Math.sqrt(Math.max(1, 5.6 * 5.6 - ox * ox)))
+          : isSpaceFloat
+            ? 1.5
+            : 0;
+      slot.group.position.set(ox, oy, item.z);
+      slot.group.rotation.set(0, 0, 0);
+      slot.group.scale.set(1, 1, 1);
+      slot.group.visible = !item.sliced;
+      this.syncObstacleVisual(slot);
+    }
+
+    for (const item of snap.coins) {
+      const slot = this.coins[item.poolIndex];
+      if (!slot) continue;
+      slot.active = true;
+      slot.lane = item.lane;
+      slot.x = item.x;
+      slot.y = item.y;
+      slot.z = item.z;
+      slot.phase = item.phase;
+      slot.mesh.position.set(item.x, item.y, item.z);
+      slot.mesh.visible = true;
+    }
+
+    for (const item of snap.powerups) {
+      const slot = this.powerups[item.poolIndex];
+      if (!slot) continue;
+      slot.active = true;
+      slot.kind = item.kind;
+      slot.lane = item.lane;
+      slot.z = item.z;
+      slot.group.position.set(LANE_X[item.lane], 1.5, item.z);
+      slot.swordView.visible = item.kind === 'sword';
+      slot.starView.visible = item.kind === 'star';
+      slot.group.visible = true;
+    }
   }
 
   public dispose(): void {

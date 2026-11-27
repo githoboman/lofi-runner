@@ -35,7 +35,7 @@ export class SpatialWorldAudioManager {
     this.enabled = flag;
     if (this.ctx && this.globalGain) {
       const now = this.ctx.currentTime;
-      const target = this.enabled ? (this.isPlaying ? 0.85 : 0.32) : 0.0001;
+      const target = this.enabled ? (this.isPlaying ? 0.44 : 0.16) : 0.0001;
       this.globalGain.gain.cancelScheduledValues(now);
       this.globalGain.gain.setTargetAtTime(target, now, 0.14);
     }
@@ -66,7 +66,7 @@ export class SpatialWorldAudioManager {
     const ctx = this.ctx;
 
     this.globalGain = ctx.createGain();
-    this.globalGain.gain.value = this.enabled ? 0.32 : 0.0001;
+    this.globalGain.gain.value = this.enabled ? 0.16 : 0.0001;
     this.globalGain.connect(ctx.destination);
 
     // 4-second seamless pink-ish noise loop buffer for wind, lava rumble, sewer hum & city rain
@@ -268,7 +268,7 @@ export class SpatialWorldAudioManager {
 
     if (this.ctx && this.globalGain) {
       const now = this.ctx.currentTime;
-      const target = !this.enabled ? 0.0001 : playing ? 0.72 + speedRatio * 0.22 : 0.24;
+      const target = !this.enabled ? 0.0001 : playing ? 0.38 + speedRatio * 0.14 : 0.14;
       this.globalGain.gain.setTargetAtTime(target, now, 0.22);
     }
   }

@@ -344,6 +344,77 @@ export class YetiController {
   }
 
   /**
+   * Sculpted agile Yeti cranium topology: tapers the cheeks/jaw and upper dome while trimming
+   * occiput (back-of-head) bulk so every character reads sleek and athletic from all camera angles.
+   */
+  private createSculptedHeadGeometry(
+    radius: number,
+    phiStart = 0,
+    phiLength = Math.PI * 2,
+  ): THREE.SphereGeometry {
+    const geo = new THREE.SphereGeometry(radius, 20, 18, phiStart, phiLength);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i);
+      const y = pos.getY(i);
+      let z = pos.getZ(i);
+
+      const ny = y / radius; // -1 (chin) .. +1 (crown)
+      const lower = Math.max(0, 0.08 - ny);
+      const upper = Math.max(0, ny - 0.25);
+
+      const jawTaper = 1 - 0.17 * lower * lower - 0.06 * lower;
+      const crownTaper = 1 - 0.1 * upper * upper;
+
+      // Narrow lateral girth smoothly across cheeks, jaw, and crown to harmonize with the athletic torso & hands
+      x *= 0.85 * jawTaper * crownTaper;
+
+      // Keep the front face well-supported for facial features while trimming rear cranium depth
+      if (z < 0) {
+        z *= 0.83 * crownTaper;
+      } else {
+        z *= 0.96;
+      }
+
+      pos.setXYZ(i, x, y, z);
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    geo.computeBoundingSphere();
+    return geo;
+  }
+
+  /**
+   * 50/50 split sculpted cranium (left -X / right +X) sharing the same agile head topology & unified outline.
+   */
+  private addSplitHeadCranium(
+    parent: THREE.Object3D,
+    radius: number,
+    leftMat: THREE.Material,
+    rightMat: THREE.Material,
+    pos: [number, number, number],
+    scale: [number, number, number],
+    outlineMat: THREE.Material | null = this.inkOutlineMat,
+    outlineScale = 1.07,
+  ): void {
+    const leftGeo = this.createSculptedHeadGeometry(radius, -Math.PI * 0.5, Math.PI);
+    const rightGeo = this.createSculptedHeadGeometry(radius, Math.PI * 0.5, Math.PI);
+    this.addOutlined(parent, leftGeo, leftMat, pos, scale, [0, 0, 0], null);
+    this.addOutlined(parent, rightGeo, rightMat, pos, scale, [0, 0, 0], null);
+
+    if (outlineMat) {
+      const outlineMesh = new THREE.Mesh(this.createSculptedHeadGeometry(radius), outlineMat);
+      outlineMesh.position.set(pos[0], pos[1], pos[2]);
+      outlineMesh.scale.set(
+        scale[0] * outlineScale,
+        scale[1] * outlineScale,
+        scale[2] * outlineScale,
+      );
+      parent.add(outlineMesh);
+    }
+  }
+
+  /**
    * Sculpted 2-segment curved Yeti horn (sweeps outward then tips upward cleanly like the original artwork).
    */
   private addCurvedHorn(
@@ -354,8 +425,8 @@ export class YetiController {
     size = 1.0,
   ): void {
     const base = new THREE.Group();
-    base.position.set(side * 0.28, 0.45, 0.08);
-    base.rotation.set(0.18, 0, -side * 0.46);
+    base.position.set(side * 0.24, 0.43, 0.07);
+    base.rotation.set(0.18, 0, -side * 0.44);
     parent.add(base);
 
     this.addOutlined(
@@ -551,27 +622,29 @@ export class YetiController {
     spine.add(chest);
 
     const head = new THREE.Group();
-    head.position.set(0, 0.62, 0.03);
+    head.position.set(0, 0.5, 0.02);
+    // Thinner, athletic head scale balanced cleanly with the leaner torso and sturdier hands
+    head.scale.set(0.66, 0.77, 0.68);
     chest.add(head);
 
     const leftShoulder = new THREE.Group();
-    leftShoulder.position.set(-0.56, 0.28, 0);
+    leftShoulder.position.set(-0.46, 0.26, 0.02);
     chest.add(leftShoulder);
 
     const leftElbow = new THREE.Group();
-    leftElbow.position.set(-0.04, -0.36, 0);
+    leftElbow.position.set(-0.055, -0.35, 0.01);
     leftShoulder.add(leftElbow);
 
     const rightShoulder = new THREE.Group();
-    rightShoulder.position.set(0.56, 0.28, 0);
+    rightShoulder.position.set(0.46, 0.26, 0.02);
     chest.add(rightShoulder);
 
     const rightElbow = new THREE.Group();
-    rightElbow.position.set(0.04, -0.36, 0);
+    rightElbow.position.set(0.055, -0.35, 0.01);
     rightShoulder.add(rightElbow);
 
     const leftHip = new THREE.Group();
-    leftHip.position.set(-0.24, -0.02, 0);
+    leftHip.position.set(-0.19, -0.02, 0);
     hips.add(leftHip);
 
     const leftKnee = new THREE.Group();
@@ -579,7 +652,7 @@ export class YetiController {
     leftHip.add(leftKnee);
 
     const rightHip = new THREE.Group();
-    rightHip.position.set(0.24, -0.02, 0);
+    rightHip.position.set(0.19, -0.02, 0);
     hips.add(rightHip);
 
     const rightKnee = new THREE.Group();
@@ -587,30 +660,30 @@ export class YetiController {
     rightHip.add(rightKnee);
 
     const backAccessory = new THREE.Group();
-    backAccessory.position.set(0, 0.15, -0.42);
+    backAccessory.position.set(0, 0.14, -0.32);
     chest.add(backAccessory);
 
-    // Spring-driven Ear Flap pivots (attached to sides of head)
+    // Spring-driven Ear Flap pivots (hugged close to the slimmer temples)
     const leftEarPivot = new THREE.Group();
-    leftEarPivot.position.set(-0.46, 0.1, 0);
+    leftEarPivot.position.set(-0.38, 0.1, 0);
     head.add(leftEarPivot);
 
     const rightEarPivot = new THREE.Group();
-    rightEarPivot.position.set(0.46, 0.1, 0);
+    rightEarPivot.position.set(0.38, 0.1, 0);
     head.add(rightEarPivot);
 
     // Spring-driven Hip Pouch pivots (attached to left & right waist)
     const leftPouchPivot = new THREE.Group();
-    leftPouchPivot.position.set(-0.46, 0.08, 0.08);
+    leftPouchPivot.position.set(-0.35, 0.08, 0.06);
     hips.add(leftPouchPivot);
 
     const rightPouchPivot = new THREE.Group();
-    rightPouchPivot.position.set(0.46, 0.08, 0.08);
+    rightPouchPivot.position.set(0.35, 0.08, 0.06);
     hips.add(rightPouchPivot);
 
     // Spring-driven Chest Medallion / Pendant pivot
     const pendantPivot = new THREE.Group();
-    pendantPivot.position.set(0, 0.18, 0.45);
+    pendantPivot.position.set(0, 0.17, 0.34);
     chest.add(pendantPivot);
 
     // Coupled 2-link Tail / Cape pivots (Root -> Tip)
@@ -622,7 +695,7 @@ export class YetiController {
     tailTipPivot.position.set(0, -0.34, -0.18);
     tailRootPivot.add(tailTipPivot);
 
-    this.swordGroup.position.set(0.04, -0.34, 0.14);
+    this.swordGroup.position.set(0.02, -0.37, 0.105);
     this.swordGroup.rotation.set(Math.PI * 0.44, 0, 0);
     rightElbow.add(this.swordGroup);
 
@@ -687,24 +760,24 @@ export class YetiController {
     const whiteEye = this.toon(0xffffff);
     const eyeNavy = this.toon(0x172554);
 
-    // Sculpted athletic shaggy Yeti torso (layered hips, plump fur belly, broad muscular fur chest)
-    this.addOutlined(j.spine, new THREE.SphereGeometry(0.46, 16, 14), fur, [0, 0.08, 0], [1.08, 0.9, 0.94]);
-    this.addOutlined(j.spine, new THREE.SphereGeometry(0.36, 14, 12), furShade, [0, 0.06, 0.16], [1.02, 0.85, 0.72], [0, 0, 0], null);
-    this.addOutlined(j.chest, new THREE.SphereGeometry(0.5, 16, 14), fur, [0, 0.1, 0], [1.22, 1.06, 0.98]);
-    // Sculpted furry pecs & shaggy collar ruff
-    this.addOutlined(j.chest, new THREE.SphereGeometry(0.24, 12, 10), fur, [-0.2, 0.14, 0.28], [1.05, 0.88, 0.72], [0, 0, 0], null);
-    this.addOutlined(j.chest, new THREE.SphereGeometry(0.24, 12, 10), fur, [0.2, 0.14, 0.28], [1.05, 0.88, 0.72], [0, 0, 0], null);
+    // Lean athletic shaggy Yeti torso tailored to balance with the hands & head
+    this.addOutlined(j.spine, new THREE.SphereGeometry(0.36, 16, 14), fur, [0, 0.08, 0], [0.84, 0.92, 0.8]);
+    this.addOutlined(j.spine, new THREE.SphereGeometry(0.27, 14, 12), furShade, [0, 0.06, 0.13], [0.86, 0.85, 0.66], [0, 0, 0], null);
+    this.addOutlined(j.chest, new THREE.SphereGeometry(0.4, 16, 14), fur, [0, 0.1, 0], [0.92, 1.04, 0.82]);
+    // Sculpted furry pecs & trimmed shaggy collar ruff
+    this.addOutlined(j.chest, new THREE.SphereGeometry(0.18, 12, 10), fur, [-0.135, 0.14, 0.21], [0.94, 0.86, 0.66], [0, 0, 0], null);
+    this.addOutlined(j.chest, new THREE.SphereGeometry(0.18, 12, 10), fur, [0.135, 0.14, 0.21], [0.94, 0.86, 0.66], [0, 0, 0], null);
 
-    const tuftGeo = new THREE.ConeGeometry(0.14, 0.34, 6);
+    const tuftGeo = new THREE.ConeGeometry(0.105, 0.26, 6);
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2;
       this.addOutlined(
         j.chest,
         tuftGeo,
         fur,
-        [Math.sin(a) * 0.52, 0.32, Math.cos(a) * 0.42],
-        [1, 1.05, 1],
-        [Math.cos(a) * 0.55, 0, -Math.sin(a) * 0.55],
+        [Math.sin(a) * 0.34, 0.3, Math.cos(a) * 0.29],
+        [0.86, 0.92, 0.86],
+        [Math.cos(a) * 0.48, 0, -Math.sin(a) * 0.48],
       );
     }
     // Lower waist shaggy fur skirt tufts
@@ -714,36 +787,36 @@ export class YetiController {
         j.spine,
         tuftGeo,
         fur,
-        [Math.sin(a) * 0.46, -0.06, Math.cos(a) * 0.38],
-        [0.85, 0.85, 0.85],
-        [Math.PI - Math.cos(a) * 0.35, 0, Math.sin(a) * 0.35],
+        [Math.sin(a) * 0.29, -0.05, Math.cos(a) * 0.25],
+        [0.74, 0.78, 0.74],
+        [Math.PI - Math.cos(a) * 0.3, 0, Math.sin(a) * 0.3],
       );
     }
 
-    // Seamless sculpted 3D OG Lofi Head
-    this.addOutlined(j.head, new THREE.SphereGeometry(0.5, 18, 16), fur, [0, 0.04, -0.02], [1.08, 1.02, 0.98]);
+    // Seamless sculpted 3D OG Lofi Head with tapered cranium & trimmed fur halo
+    this.addOutlined(j.head, this.createSculptedHeadGeometry(0.47), fur, [0, 0.04, -0.02], [0.98, 1.01, 0.96]);
 
-    // Radial shaggy white Yeti fur halo framing the face
+    // Trimmed shaggy white Yeti fur halo framing the sleeker face without excess side girth
     const headHaloSpikes: [number, number, number, number, number][] = [
-      [-0.22, 0.48, 0.0, 0.95, 0.34],
-      [-0.04, 0.56, 0.0, 1.12, 0.06],
-      [0.14, 0.53, 0.0, 1.05, -0.2],
-      [0.28, 0.44, -0.02, 0.9, -0.4],
-      [-0.46, 0.24, 0.0, 0.92, 0.96],
-      [0.46, 0.24, 0.0, 0.92, -0.96],
-      [-0.48, -0.04, 0.02, 0.95, 1.38],
-      [0.48, -0.04, 0.02, 0.95, -1.38],
-      [-0.36, -0.32, 0.04, 0.86, 2.05],
-      [0.36, -0.32, 0.04, 0.86, -2.05],
-      [0, -0.43, 0.05, 0.86, Math.PI],
+      [-0.19, 0.46, 0.0, 0.9, 0.3],
+      [-0.03, 0.53, 0.0, 1.04, 0.05],
+      [0.12, 0.5, 0.0, 0.98, -0.18],
+      [0.24, 0.42, -0.02, 0.86, -0.36],
+      [-0.38, 0.22, 0.0, 0.82, 0.92],
+      [0.38, 0.22, 0.0, 0.82, -0.92],
+      [-0.39, -0.04, 0.02, 0.84, 1.32],
+      [0.39, -0.04, 0.02, 0.84, -1.32],
+      [-0.3, -0.3, 0.04, 0.78, 2.0],
+      [0.3, -0.3, 0.04, 0.78, -2.0],
+      [0, -0.41, 0.05, 0.8, Math.PI],
     ];
     for (const [sx, sy, sz, sc, rz] of headHaloSpikes) {
-      this.addOutlined(j.head, tuftGeo, fur, [sx, sy, sz], [sc * 0.84, sc * 0.95, sc * 0.82], [0.06, 0, rz]);
+      this.addOutlined(j.head, tuftGeo, fur, [sx, sy, sz], [sc * 0.72, sc * 0.86, sc * 0.72], [0.06, 0, rz]);
     }
 
-    // Seamlessly contoured glacier-blue upper face & rounded cool-grey muzzle merged INTO the 3D head
-    this.addOutlined(j.head, new THREE.SphereGeometry(0.38, 16, 14), blueSkin, [0, 0.13, 0.2], [1.08, 0.65, 0.82], [0, 0, 0], null);
-    this.addOutlined(j.head, new THREE.SphereGeometry(0.355, 16, 14), muzzle, [0, -0.14, 0.24], [1.08, 0.72, 0.84], [0, 0, 0], null);
+    // Seamlessly contoured glacier-blue upper face & rounded cool-grey muzzle fitted to the trimmer cranium
+    this.addOutlined(j.head, new THREE.SphereGeometry(0.365, 16, 14), blueSkin, [0, 0.13, 0.2], [0.94, 0.64, 0.82], [0, 0, 0], null);
+    this.addOutlined(j.head, new THREE.SphereGeometry(0.34, 16, 14), muzzle, [0, -0.14, 0.24], [0.93, 0.71, 0.84], [0, 0, 0], null);
 
     // Clean, expressive sleepy 3D Pepe-style almond eyes with glacier-blue brow folds (zero black outlines on face!)
     const eyeGeo = new THREE.SphereGeometry(0.135, 14, 12);
@@ -806,40 +879,40 @@ export class YetiController {
     const teethMat = this.toon(0xfef9c3);
     const mouthDark = this.toon(0x7c2d12);
 
-    // Muscular sculpted flame body with glowing golden chest/ab flame ridges
-    this.addOutlined(j.spine, new THREE.SphereGeometry(0.45, 16, 14), emberBody, [0, 0.08, 0], [1.06, 0.9, 0.92], [0, 0, 0], this.flameOutlineMat);
-    this.addOutlined(j.chest, new THREE.SphereGeometry(0.51, 16, 14), flameOrange, [0, 0.1, 0], [1.24, 1.06, 0.96], [0, 0, 0], this.flameOutlineMat);
-    this.addOutlined(j.chest, new THREE.SphereGeometry(0.28, 12, 10), flameGold, [0, 0.1, 0.28], [1.15, 0.95, 0.62], [0, 0, 0], null);
-    this.addOutlined(j.spine, new THREE.SphereGeometry(0.22, 10, 8), flameGold, [0, 0.1, 0.28], [1.05, 0.78, 0.58], [0, 0, 0], null);
+    // Lean sculpted flame torso with glowing golden chest/ab flame ridges
+    this.addOutlined(j.spine, new THREE.SphereGeometry(0.355, 16, 14), emberBody, [0, 0.08, 0], [0.84, 0.92, 0.78], [0, 0, 0], this.flameOutlineMat);
+    this.addOutlined(j.chest, new THREE.SphereGeometry(0.4, 16, 14), flameOrange, [0, 0.1, 0], [0.92, 1.04, 0.81], [0, 0, 0], this.flameOutlineMat);
+    this.addOutlined(j.chest, new THREE.SphereGeometry(0.21, 12, 10), flameGold, [0, 0.1, 0.21], [0.98, 0.92, 0.58], [0, 0, 0], null);
+    this.addOutlined(j.spine, new THREE.SphereGeometry(0.165, 10, 8), flameGold, [0, 0.1, 0.2], [0.9, 0.78, 0.54], [0, 0, 0], null);
 
-    // Roaring curved shoulder & collar flame pauldrons
-    const tongueGeo = new THREE.ConeGeometry(0.19, 0.58, 6);
+    // Streamlined collar flame pauldrons hugging the slimmer torso
+    const tongueGeo = new THREE.ConeGeometry(0.145, 0.48, 6);
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
       const f = this.addOutlined(
         j.chest,
         tongueGeo,
         i % 2 === 0 ? flameGold : flameOrange,
-        [Math.sin(a) * 0.52, 0.38, Math.cos(a) * 0.4],
-        [1.02, 1.22, 1.02],
-        [0, a, -Math.sin(a) * 0.3],
+        [Math.sin(a) * 0.37, 0.34, Math.cos(a) * 0.3],
+        [0.92, 1.12, 0.92],
+        [0, a, -Math.sin(a) * 0.28],
         this.flameOutlineMat,
       );
       j.flames.push(f);
     }
 
-    // Seamless 3D sculpted Inferno Head + towering billowing layered fire mane
-    this.addOutlined(j.head, new THREE.SphereGeometry(0.5, 18, 16), flameOrange, [0, 0.04, -0.02], [1.08, 1.04, 0.98], [0, 0, 0], this.flameOutlineMat);
+    // Seamless 3D sculpted Inferno Head + streamlined billowing fire mane
+    this.addOutlined(j.head, this.createSculptedHeadGeometry(0.47), flameOrange, [0, 0.04, -0.02], [0.98, 1.02, 0.96], [0, 0, 0], this.flameOutlineMat);
 
-    const crownGeo = new THREE.ConeGeometry(0.24, 0.92, 7);
+    const crownGeo = new THREE.ConeGeometry(0.21, 0.88, 7);
     const crownSpecs: [number, number, number, number, number, boolean][] = [
-      [0, 0.72, -0.04, 1.28, 0, true],
-      [-0.26, 0.6, 0.02, 1.04, 0.28, false],
-      [0.26, 0.6, 0.02, 1.04, -0.28, false],
-      [-0.44, 0.36, -0.02, 0.88, 0.65, false],
-      [0.44, 0.36, -0.02, 0.88, -0.65, false],
-      [-0.16, 0.64, -0.22, 1.12, 0.14, true],
-      [0.16, 0.64, -0.22, 1.12, -0.14, true],
+      [0, 0.7, -0.04, 1.2, 0, true],
+      [-0.22, 0.58, 0.02, 0.96, 0.24, false],
+      [0.22, 0.58, 0.02, 0.96, -0.24, false],
+      [-0.36, 0.34, -0.02, 0.78, 0.56, false],
+      [0.36, 0.34, -0.02, 0.78, -0.56, false],
+      [-0.14, 0.62, -0.2, 1.04, 0.12, true],
+      [0.14, 0.62, -0.2, 1.04, -0.12, true],
     ];
     for (const [x, y, z, s, rz, isCore] of crownSpecs) {
       const plume = this.addOutlined(
@@ -847,7 +920,7 @@ export class YetiController {
         crownGeo,
         isCore ? flameCore : flameGold,
         [x, y, z],
-        [s, s * 1.18, s],
+        [s * 0.9, s * 1.15, s * 0.9],
         [-0.14, 0, rz],
         this.flameOutlineMat,
       );
@@ -907,11 +980,11 @@ export class YetiController {
     ]);
     this.addOutlined(j.head, new THREE.TubeGeometry(lowerSmirk, 8, 0.024, 6, false), flameGold, [0, 0, 0], [1, 1, 1], [0, 0, 0], this.flameOutlineMat, 1.07);
 
-    // Sweeping blazing cheek & chin flame goatee/beard tufts
-    const cheekFlameGeo = new THREE.ConeGeometry(0.14, 0.42, 6);
-    const beardL = this.addOutlined(j.head, cheekFlameGeo, flameGold, [-0.36, -0.28, 0.16], [0.95, 1, 0.8], [0.1, 0, 2.2], this.flameOutlineMat);
-    const beardR = this.addOutlined(j.head, cheekFlameGeo, flameGold, [0.36, -0.28, 0.16], [0.95, 1, 0.8], [0.1, 0, -2.2], this.flameOutlineMat);
-    const beardC = this.addOutlined(j.head, new THREE.ConeGeometry(0.2, 0.44, 6), flameOrange, [0, -0.44, 0.24], [1.12, 1, 0.75], [Math.PI - 0.12, 0, 0], this.flameOutlineMat);
+    // Streamlined cheek & chin flame goatee/beard tufts
+    const cheekFlameGeo = new THREE.ConeGeometry(0.12, 0.38, 6);
+    const beardL = this.addOutlined(j.head, cheekFlameGeo, flameGold, [-0.29, -0.26, 0.16], [0.84, 0.95, 0.76], [0.1, 0, 2.15], this.flameOutlineMat);
+    const beardR = this.addOutlined(j.head, cheekFlameGeo, flameGold, [0.29, -0.26, 0.16], [0.84, 0.95, 0.76], [0.1, 0, -2.15], this.flameOutlineMat);
+    const beardC = this.addOutlined(j.head, new THREE.ConeGeometry(0.18, 0.4, 6), flameOrange, [0, -0.42, 0.24], [1.0, 0.96, 0.72], [Math.PI - 0.12, 0, 0], this.flameOutlineMat);
     j.flames.push(beardL, beardR, beardC);
 
     this.addOutlined(j.leftEarPivot, new THREE.SphereGeometry(0.13, 10, 8), flameOrange, [-0.08, -0.02, 0], [0.8, 1.05, 0.7], [0, 0, 0.25], this.flameOutlineMat);
@@ -945,33 +1018,33 @@ export class YetiController {
     });
     const darkSlime = this.toon(0x052e16);
 
-    // Full internal glowing chartreuse-lime skeleton (pelvis, spine vertebrae & 4 curved ribs!)
-    this.addOutlined(j.spine, new THREE.TorusGeometry(0.24, 0.06, 6, 14), boneCore, [0, 0.04, 0], [1.15, 0.72, 0.85], [Math.PI / 2, 0, 0], null);
-    this.addOutlined(j.chest, new THREE.CylinderGeometry(0.08, 0.09, 0.76, 8), boneCore, [0, 0.04, -0.04], [1, 1, 1], [0, 0, 0], null);
+    // Full internal glowing chartreuse-lime skeleton (pelvis, spine vertebrae & 4 curved ribs fitted to leaner torso)
+    this.addOutlined(j.spine, new THREE.TorusGeometry(0.185, 0.05, 6, 14), boneCore, [0, 0.04, 0], [1.02, 0.72, 0.78], [Math.PI / 2, 0, 0], null);
+    this.addOutlined(j.chest, new THREE.CylinderGeometry(0.068, 0.075, 0.74, 8), boneCore, [0, 0.04, -0.03], [1, 1, 1], [0, 0, 0], null);
     for (let r = 0; r < 4; r++) {
       this.addOutlined(
         j.chest,
-        new THREE.TorusGeometry(0.29 - r * 0.025, 0.044, 6, 16),
+        new THREE.TorusGeometry(0.22 - r * 0.018, 0.036, 6, 16),
         boneCore,
-        [0, 0.26 - r * 0.145, 0.02],
-        [1.18, 0.84, 0.82],
+        [0, 0.25 - r * 0.14, 0.015],
+        [1.06, 0.8, 0.76],
         [Math.PI / 2, 0, 0],
         null,
       );
     }
 
-    // Translucent muscular slime torso shell + dripping shoulder slime blobs
-    const jellyBelly = this.addOutlined(j.spine, new THREE.SphereGeometry(0.47, 16, 14), gelOuter, [0, 0.08, 0], [1.1, 0.92, 0.94], [0, 0, 0], this.slimeOutlineMat);
-    const jellyChest = this.addOutlined(j.chest, new THREE.SphereGeometry(0.51, 16, 14), gelOuter, [0, 0.1, 0], [1.22, 1.06, 0.98], [0, 0, 0], this.slimeOutlineMat);
+    // Translucent lean athletic slime torso shell
+    const jellyBelly = this.addOutlined(j.spine, new THREE.SphereGeometry(0.36, 16, 14), gelOuter, [0, 0.08, 0], [0.85, 0.92, 0.8], [0, 0, 0], this.slimeOutlineMat);
+    const jellyChest = this.addOutlined(j.chest, new THREE.SphereGeometry(0.4, 16, 14), gelOuter, [0, 0.1, 0], [0.92, 1.04, 0.82], [0, 0, 0], this.slimeOutlineMat);
     j.slimeShells.push(jellyBelly, jellyChest);
 
     // Real 3D glowing inner skull cranium + protruding exposed 3D grinning skull jaw!
-    this.addOutlined(j.head, new THREE.SphereGeometry(0.35, 14, 12), boneCore, [0, 0.08, 0.02], [1.0, 0.94, 0.94], [0, 0, 0], null);
-    this.addOutlined(j.head, new THREE.BoxGeometry(0.48, 0.19, 0.24), darkSlime, [0, -0.15, 0.34], [1, 1, 1], [0, 0, 0], this.slimeOutlineMat, 1.06);
-    const skullToothGeo = new THREE.BoxGeometry(0.068, 0.145, 0.08);
+    this.addOutlined(j.head, new THREE.SphereGeometry(0.32, 14, 12), boneCore, [0, 0.08, 0.02], [0.92, 0.94, 0.9], [0, 0, 0], null);
+    this.addOutlined(j.head, new THREE.BoxGeometry(0.45, 0.18, 0.23), darkSlime, [0, -0.15, 0.34], [1, 1, 1], [0, 0, 0], this.slimeOutlineMat, 1.06);
+    const skullToothGeo = new THREE.BoxGeometry(0.064, 0.14, 0.08);
     for (let t = 0; t < 6; t++) {
-      const tx = -0.19 + t * 0.076;
-      const tz = 0.45 - Math.abs(tx) * 0.15;
+      const tx = -0.18 + t * 0.072;
+      const tz = 0.448 - Math.abs(tx) * 0.15;
       this.addOutlined(j.head, skullToothGeo, boneCore, [tx, -0.15, tz], [1, 1, 1], [0, tx * 0.6, 0], this.slimeOutlineMat, 1.05);
     }
 
@@ -985,22 +1058,22 @@ export class YetiController {
     }
     this.addOutlined(j.head, new THREE.SphereGeometry(0.075, 10, 8), gelDense, [0, -0.01, 0.48], [1.2, 0.85, 0.75], [0, 0, 0], this.slimeOutlineMat);
 
-    // Translucent shaggy dripping slime outer head dome
-    const jellyHead = this.addOutlined(j.head, new THREE.SphereGeometry(0.51, 18, 16), gelOuter, [0, 0.05, -0.02], [1.1, 1.04, 0.98], [0, 0, 0], this.slimeOutlineMat);
+    // Translucent sculpted dripping slime outer head dome with reduced girth
+    const jellyHead = this.addOutlined(j.head, this.createSculptedHeadGeometry(0.48), gelOuter, [0, 0.05, -0.02], [0.99, 1.02, 0.96], [0, 0, 0], this.slimeOutlineMat);
     j.slimeShells.push(jellyHead);
 
-    const slimeTuftGeo = new THREE.ConeGeometry(0.14, 0.34, 6);
+    const slimeTuftGeo = new THREE.ConeGeometry(0.12, 0.31, 6);
     const slimeSpikes: [number, number, number, number][] = [
-      [-0.22, 0.48, 0.0, 0.34],
-      [-0.02, 0.56, 0.0, 0.05],
-      [0.18, 0.5, 0.0, -0.26],
-      [-0.46, 0.18, 0.02, 1.08],
-      [0.46, 0.18, 0.02, -1.08],
-      [-0.42, -0.18, 0.04, 1.68],
-      [0.42, -0.18, 0.04, -1.68],
+      [-0.19, 0.46, 0.0, 0.3],
+      [-0.02, 0.54, 0.0, 0.04],
+      [0.16, 0.48, 0.0, -0.24],
+      [-0.38, 0.18, 0.02, 1.02],
+      [0.38, 0.18, 0.02, -1.02],
+      [-0.34, -0.17, 0.04, 1.62],
+      [0.34, -0.17, 0.04, -1.62],
     ];
     for (const [sx, sy, sz, rz] of slimeSpikes) {
-      const drip = this.addOutlined(j.head, slimeTuftGeo, gelOuter, [sx, sy, sz], [0.9, 1.0, 0.85], [0.08, 0, rz], this.slimeOutlineMat);
+      const drip = this.addOutlined(j.head, slimeTuftGeo, gelOuter, [sx, sy, sz], [0.78, 0.9, 0.76], [0.08, 0, rz], this.slimeOutlineMat);
       j.slimeShells.push(drip);
     }
 
@@ -1040,44 +1113,44 @@ export class YetiController {
     const whiteEye = this.toon(0xffffff);
     const pupil = this.toon(0x090c14);
 
-    // TRUE LEFT (-X) / RIGHT (+X) 50/50 split sculpted athletic torso with unified outline!
-    this.addSplitEllipsoid(j.spine, 0.46, cyborgArmorMat, fur, [0, 0.08, 0], [1.08, 0.9, 0.94]);
-    this.addSplitEllipsoid(j.chest, 0.5, cyborgArmorMat, fur, [0, 0.1, 0], [1.22, 1.06, 0.98]);
+    // TRUE LEFT (-X) / RIGHT (+X) 50/50 split lean athletic torso with unified outline!
+    this.addSplitEllipsoid(j.spine, 0.36, cyborgArmorMat, fur, [0, 0.08, 0], [0.84, 0.92, 0.8]);
+    this.addSplitEllipsoid(j.chest, 0.4, cyborgArmorMat, fur, [0, 0.1, 0], [0.92, 1.04, 0.82]);
 
-    // Exposed dark steel engine recess + 3 meshing rotating silver clockwork gears + hydraulic piston on -X chest!
-    this.addOutlined(j.chest, new THREE.BoxGeometry(0.38, 0.42, 0.14), darkSteel, [-0.22, 0.1, 0.42], [1, 1, 1], [0, -0.22, 0], this.inkOutlineMat, 1.06);
-    const gearGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.065, 10);
+    // Exposed dark steel engine recess + meshing silver clockwork gears + hydraulic piston fitted flush to slimmer chest!
+    this.addOutlined(j.chest, new THREE.BoxGeometry(0.28, 0.36, 0.12), darkSteel, [-0.155, 0.1, 0.31], [1, 1, 1], [0, -0.22, 0], this.inkOutlineMat, 1.06);
+    const gearGeo = new THREE.CylinderGeometry(0.125, 0.125, 0.055, 10);
     gearGeo.rotateX(Math.PI / 2);
-    const chestGear = this.addOutlined(j.chest, gearGeo, chrome, [-0.25, 0.16, 0.48], [1, 1, 1], [0, -0.22, 0], this.inkOutlineMat);
-    const lowerGear = this.addOutlined(j.chest, gearGeo, chrome, [-0.13, -0.02, 0.49], [0.72, 0.72, 1], [0, -0.15, 0], this.inkOutlineMat);
-    const shoulderGear = this.addOutlined(j.leftShoulder, gearGeo, chrome, [-0.08, 0.05, 0.16], [0.85, 0.85, 0.85], [0, 0, 0], this.inkOutlineMat);
-    const backGear = this.addOutlined(j.backAccessory, gearGeo, chrome, [-0.18, 0.08, -0.04], [1.1, 1.1, 1.1], [0, 0, 0], this.inkOutlineMat);
+    const chestGear = this.addOutlined(j.chest, gearGeo, chrome, [-0.175, 0.16, 0.36], [1, 1, 1], [0, -0.22, 0], this.inkOutlineMat);
+    const lowerGear = this.addOutlined(j.chest, gearGeo, chrome, [-0.09, -0.01, 0.37], [0.7, 0.7, 1], [0, -0.15, 0], this.inkOutlineMat);
+    const shoulderGear = this.addOutlined(j.leftShoulder, gearGeo, chrome, [-0.07, 0.05, 0.15], [0.82, 0.82, 0.82], [0, 0, 0], this.inkOutlineMat);
+    const backGear = this.addOutlined(j.backAccessory, gearGeo, chrome, [-0.14, 0.08, -0.04], [1.0, 1.0, 1.0], [0, 0, 0], this.inkOutlineMat);
     // Chrome hydraulic collar strut on mechanical side
-    this.addOutlined(j.chest, new THREE.CylinderGeometry(0.04, 0.04, 0.44, 8), chrome, [-0.42, 0.2, 0.2], [1, 1, 1], [0.22, 0, 0.36], this.inkOutlineMat);
+    this.addOutlined(j.chest, new THREE.CylinderGeometry(0.034, 0.034, 0.38, 8), chrome, [-0.31, 0.19, 0.15], [1, 1, 1], [0.2, 0, 0.32], this.inkOutlineMat);
     j.gears.push(chestGear, lowerGear, shoulderGear, backGear);
 
-    // Shaggy white shoulder & waist fur tufts on organic +X side ONLY
-    const tuftGeo = new THREE.ConeGeometry(0.14, 0.34, 6);
+    // Shaggy white shoulder & collar fur tufts on organic +X side ONLY
+    const tuftGeo = new THREE.ConeGeometry(0.11, 0.27, 6);
     for (let i = 0; i < 5; i++) {
       const a = 0.22 + (i / 4) * (Math.PI - 0.44);
       this.addOutlined(
         j.chest,
         tuftGeo,
         fur,
-        [Math.sin(a) * 0.52, 0.32, Math.cos(a) * 0.4],
-        [1, 1.04, 1],
-        [Math.cos(a) * 0.52, 0, -Math.sin(a) * 0.52],
+        [Math.sin(a) * 0.36, 0.3, Math.cos(a) * 0.3],
+        [0.9, 0.94, 0.9],
+        [Math.cos(a) * 0.48, 0, -Math.sin(a) * 0.48],
       );
     }
 
-    // TRUE LEFT (-X) / RIGHT (+X) 50/50 split sculpted 3D Yeti Head (ZERO flat mask!)
-    this.addSplitEllipsoid(j.head, 0.5, cyborgArmorMat, fur, [0, 0.04, -0.02], [1.08, 1.03, 0.98]);
-    // Crisp dark midline panel seam running down the exact 50/50 split
-    this.addOutlined(j.head, new THREE.TorusGeometry(0.495, 0.018, 6, 28), darkSteel, [0, 0.04, -0.01], [0.98, 1.03, 1.0], [0, Math.PI / 2, 0], null);
+    // TRUE LEFT (-X) / RIGHT (+X) 50/50 split sculpted agile 3D Yeti Head
+    this.addSplitHeadCranium(j.head, 0.47, cyborgArmorMat, fur, [0, 0.04, -0.02], [0.98, 1.01, 0.96]);
+    // Crisp dark midline panel seam following the streamlined 50/50 cranium
+    this.addOutlined(j.head, new THREE.TorusGeometry(0.462, 0.016, 6, 28), darkSteel, [0, 0.04, -0.01], [0.94, 1.01, 0.94], [0, Math.PI / 2, 0], null);
 
-    // --- ORGANIC +X HALF OF FACE (Exact sculpted OG Lofi right half!) ---
-    this.addOutlined(j.head, new THREE.SphereGeometry(0.365, 14, 12, Math.PI * 0.5, Math.PI), blueSkin, [0.005, 0.13, 0.21], [1.06, 0.64, 0.8], [0, 0, 0], null);
-    this.addOutlined(j.head, new THREE.SphereGeometry(0.345, 14, 12, Math.PI * 0.5, Math.PI), muzzle, [0.005, -0.14, 0.24], [1.06, 0.7, 0.82], [0, 0, 0], null);
+    // --- ORGANIC +X HALF OF FACE (Exact sculpted OG Lofi right half fitted to sleeker cranium!) ---
+    this.addOutlined(j.head, new THREE.SphereGeometry(0.355, 14, 12, Math.PI * 0.5, Math.PI), blueSkin, [0.005, 0.13, 0.21], [0.94, 0.63, 0.8], [0, 0, 0], null);
+    this.addOutlined(j.head, new THREE.SphereGeometry(0.335, 14, 12, Math.PI * 0.5, Math.PI), muzzle, [0.005, -0.14, 0.24], [0.93, 0.69, 0.82], [0, 0, 0], null);
     // Sleepy 3D Pepe almond eye + double arched blue brow folds
     this.addOutlined(j.head, new THREE.SphereGeometry(0.132, 14, 12), whiteEye, [0.165, 0.125, 0.43], [1.28, 0.8, 0.48], [0, 0.2, 0], this.inkOutlineMat, 1.09);
     this.addOutlined(j.head, new THREE.SphereGeometry(0.074, 10, 10), pupil, [0.155, 0.118, 0.485], [1, 0.94, 0.42], [0, 0.2, 0], null);
@@ -1109,37 +1182,37 @@ export class YetiController {
     this.addOutlined(j.head, new THREE.SphereGeometry(0.036, 10, 8), pupil, [-0.192, 0.125, 0.506], [1, 1, 0.45], [0, -0.22, 0], null);
     this.addOutlined(j.head, new THREE.SphereGeometry(0.018, 6, 6), whiteEye, [-0.17, 0.145, 0.522], [1, 1, 1], [0, 0, 0], null);
 
-    // Spinning miniature chrome temple gear nestled into the side of the mecha head!
-    const templeGear = this.addOutlined(j.head, gearGeo, chrome, [-0.46, 0.04, 0.18], [0.68, 0.68, 0.7], [0, -Math.PI / 2 + 0.3, 0], this.inkOutlineMat);
+    // Spinning miniature chrome temple gear nestled flush into the sleeker mecha temple
+    const templeGear = this.addOutlined(j.head, gearGeo, chrome, [-0.39, 0.04, 0.16], [0.62, 0.62, 0.65], [0, -Math.PI / 2 + 0.28, 0], this.inkOutlineMat);
     j.gears.push(templeGear);
 
     // Recessed mechanical jaw plate + exposed silver piston coils beneath articulated robotic wavy lips!
-    this.addOutlined(j.head, new THREE.SphereGeometry(0.325, 14, 12, -Math.PI * 0.5, Math.PI), mechaWhite, [-0.005, -0.14, 0.24], [1.04, 0.68, 0.8], [0, 0, 0], null);
+    this.addOutlined(j.head, new THREE.SphereGeometry(0.32, 14, 12, -Math.PI * 0.5, Math.PI), mechaWhite, [-0.005, -0.14, 0.24], [0.92, 0.67, 0.8], [0, 0, 0], null);
     this.addOutlined(j.head, new THREE.CylinderGeometry(0.048, 0.048, 0.08, 10), mechaWhite, [-0.042, -0.02, 0.492], [1, 1, 1], [Math.PI / 2, 0, 0], this.inkOutlineMat);
     this.addOutlined(j.head, new THREE.SphereGeometry(0.02, 6, 6), darkSteel, [-0.046, -0.032, 0.535], [1, 1, 0.6], [0, 0, 0], null);
     // Seamlessly matched articulated white-chrome wavy robotic tubing lip meeting the blue organic lip at x = 0!
     this.addSculptedWavyLips(j.head, mechaWhite, mechaWhite, darkSteel, this.inkOutlineMat, 'left', true);
     // Tiny recessed mechanical jaw coil piston below the robotic chin
-    this.addOutlined(j.head, new THREE.CylinderGeometry(0.032, 0.032, 0.16, 8), chrome, [-0.14, -0.31, 0.43], [1, 1, 1], [0.22, 0, 0.52], this.inkOutlineMat);
+    this.addOutlined(j.head, new THREE.CylinderGeometry(0.03, 0.03, 0.15, 8), chrome, [-0.13, -0.3, 0.42], [1, 1, 1], [0.22, 0, 0.5], this.inkOutlineMat);
 
-    // Shaggy white fur spikes on organic +X side; sleek white-chrome crown fins on -X side
+    // Streamlined shaggy white fur spikes on organic +X side; sleek white-chrome crown fins on -X side
     const rightSpikes: [number, number, number, number][] = [
-      [0.12, 0.54, 0.0, -0.18],
-      [0.28, 0.45, -0.02, -0.4],
-      [0.46, 0.2, 0.0, -1.02],
-      [0.46, -0.08, 0.02, -1.45],
-      [0.34, -0.34, 0.04, -2.05],
+      [0.11, 0.52, 0.0, -0.16],
+      [0.24, 0.43, -0.02, -0.36],
+      [0.38, 0.19, 0.0, -0.96],
+      [0.38, -0.07, 0.02, -1.38],
+      [0.28, -0.32, 0.04, -1.98],
     ];
     for (const [sx, sy, sz, rz] of rightSpikes) {
-      this.addOutlined(j.head, tuftGeo, fur, [sx, sy, sz], [0.85, 0.95, 0.82], [0.06, 0, rz]);
+      this.addOutlined(j.head, tuftGeo, fur, [sx, sy, sz], [0.74, 0.86, 0.72], [0.06, 0, rz]);
     }
     const leftTechSpikes: [number, number, number, number][] = [
-      [-0.14, 0.52, 0.0, 0.2],
-      [-0.3, 0.42, -0.02, 0.45],
-      [-0.45, 0.16, 0.0, 1.08],
+      [-0.12, 0.5, 0.0, 0.18],
+      [-0.25, 0.4, -0.02, 0.42],
+      [-0.37, 0.15, 0.0, 1.02],
     ];
     for (const [sx, sy, sz, rz] of leftTechSpikes) {
-      this.addOutlined(j.head, tuftGeo, mechaWhite, [sx, sy, sz], [0.76, 0.84, 0.76], [0.06, 0, rz]);
+      this.addOutlined(j.head, tuftGeo, mechaWhite, [sx, sy, sz], [0.68, 0.78, 0.68], [0.06, 0, rz]);
     }
 
     // 2-segment curved horns (chrome on -X, glacier-blue on +X) & asymmetric ears
@@ -1179,34 +1252,34 @@ export class YetiController {
     const clawMat = this.toon(0x38bdf8, { emissive: 0x0ea5e9, emissiveIntensity: 0.4 });
     const darkCavity = this.toon(0x090814);
 
-    // TRUE LEFT (-X) / RIGHT (+X) 50/50 split muscular Shadow Yeti torso with unified outline!
-    this.addSplitEllipsoid(j.spine, 0.46, obsidianRock, midnightFur, [0, 0.08, 0], [1.08, 0.9, 0.94]);
-    this.addSplitEllipsoid(j.chest, 0.51, obsidianRock, midnightFur, [0, 0.1, 0], [1.24, 1.07, 0.98]);
+    // TRUE LEFT (-X) / RIGHT (+X) 50/50 split lean athletic Shadow Yeti torso with unified outline!
+    this.addSplitEllipsoid(j.spine, 0.36, obsidianRock, midnightFur, [0, 0.08, 0], [0.84, 0.92, 0.8]);
+    this.addSplitEllipsoid(j.chest, 0.4, obsidianRock, midnightFur, [0, 0.1, 0], [0.93, 1.04, 0.82]);
 
-    // Sculpted faceted obsidian pectoral & rib armor plates on -X side!
-    this.addOutlined(j.chest, new THREE.BoxGeometry(0.32, 0.24, 0.14), obsidianEdge, [-0.21, 0.18, 0.42], [1, 1, 1], [0.1, -0.26, -0.08], this.inkOutlineMat, 1.07);
-    this.addOutlined(j.chest, new THREE.BoxGeometry(0.28, 0.13, 0.12), obsidianEdge, [-0.19, -0.04, 0.43], [1, 1, 1], [0.06, -0.24, -0.06], this.inkOutlineMat, 1.07);
+    // Sculpted faceted obsidian pectoral & rib armor plates hugged flush to slimmer chest!
+    this.addOutlined(j.chest, new THREE.BoxGeometry(0.24, 0.21, 0.11), obsidianEdge, [-0.155, 0.17, 0.31], [1, 1, 1], [0.1, -0.26, -0.08], this.inkOutlineMat, 1.07);
+    this.addOutlined(j.chest, new THREE.BoxGeometry(0.21, 0.11, 0.1), obsidianEdge, [-0.14, -0.03, 0.32], [1, 1, 1], [0.06, -0.24, -0.06], this.inkOutlineMat, 1.07);
 
-    // Shaggy dark shoulder & collar mantle spikes (split obsidian vs midnight fur)
-    const tuftGeo = new THREE.ConeGeometry(0.14, 0.35, 6);
+    // Trimmed dark shoulder & collar mantle spikes (split obsidian vs midnight fur)
+    const tuftGeo = new THREE.ConeGeometry(0.11, 0.28, 6);
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2;
-      const sx = Math.sin(a) * 0.52;
+      const sx = Math.sin(a) * 0.37;
       this.addOutlined(
         j.chest,
         tuftGeo,
         sx < 0 ? obsidianEdge : darkIndigo,
-        [sx, 0.34, Math.cos(a) * 0.4],
-        [1, 1.06, 1],
-        [Math.cos(a) * 0.52, 0, -Math.sin(a) * 0.52],
+        [sx, 0.31, Math.cos(a) * 0.3],
+        [0.9, 0.96, 0.9],
+        [Math.cos(a) * 0.48, 0, -Math.sin(a) * 0.48],
       );
     }
 
-    // TRUE LEFT (-X) / RIGHT (+X) 50/50 split sculpted 3D Void Shadow Head (ZERO flat mask!)
-    this.addSplitEllipsoid(j.head, 0.5, obsidianRock, midnightFur, [0, 0.04, -0.02], [1.09, 1.04, 0.98]);
+    // TRUE LEFT (-X) / RIGHT (+X) 50/50 split sculpted agile 3D Void Shadow Head
+    this.addSplitHeadCranium(j.head, 0.47, obsidianRock, midnightFur, [0, 0.04, -0.02], [0.99, 1.02, 0.96]);
 
-    // Faceted obsidian cheekbone ridge on -X side
-    this.addOutlined(j.head, new THREE.BoxGeometry(0.28, 0.18, 0.16), obsidianEdge, [-0.26, -0.04, 0.35], [1, 1, 1], [0.1, -0.42, 0.12], null);
+    // Trimmed faceted obsidian cheekbone ridge hugging the sculpted -X cheek
+    this.addOutlined(j.head, new THREE.BoxGeometry(0.22, 0.16, 0.14), obsidianEdge, [-0.22, -0.04, 0.34], [1, 1, 1], [0.1, -0.4, 0.1], null);
 
     // Recessed dark orbital sockets + twin iconic GLOWING PALE-LAVENDER ALMOND EYES (NO pupils!)
     const socketGeo = new THREE.SphereGeometry(0.135, 12, 10);
@@ -1238,15 +1311,15 @@ export class YetiController {
       this.addOutlined(j.head, stitchBarGeo, stitchViolet, [sx, sy, sz], [1, 1, 0.7], [0, 0.26, -0.22], null);
     }
 
-    // Spiky split shadow mane framing the head
+    // Streamlined split shadow mane framing the sleeker head
     const headSpikes: [number, number, number, number][] = [
-      [-0.22, 0.49, 0.0, 0.34],
-      [-0.02, 0.56, 0.0, 0.04],
-      [0.18, 0.52, 0.0, -0.25],
-      [-0.46, 0.2, 0.0, 1.02],
-      [0.46, 0.2, 0.0, -1.02],
-      [-0.46, -0.1, 0.02, 1.48],
-      [0.46, -0.1, 0.02, -1.48],
+      [-0.19, 0.47, 0.0, 0.3],
+      [-0.02, 0.54, 0.0, 0.04],
+      [0.16, 0.5, 0.0, -0.22],
+      [-0.38, 0.19, 0.0, 0.96],
+      [0.38, 0.19, 0.0, -0.96],
+      [-0.38, -0.09, 0.02, 1.42],
+      [0.38, -0.09, 0.02, -1.42],
     ];
     for (const [sx, sy, sz, rz] of headSpikes) {
       this.addOutlined(
@@ -1254,7 +1327,7 @@ export class YetiController {
         tuftGeo,
         sx < 0 ? obsidianEdge : darkIndigo,
         [sx, sy, sz],
-        [0.88, 1.02, 0.84],
+        [0.76, 0.9, 0.74],
         [0.08, 0, rz],
       );
     }
@@ -1267,18 +1340,18 @@ export class YetiController {
     this.addOutlined(j.leftEarPivot, new THREE.SphereGeometry(0.135, 10, 8), obsidianRock, [-0.08, -0.02, 0.02], [0.78, 1.0, 0.65]);
     this.addOutlined(j.rightEarPivot, new THREE.SphereGeometry(0.135, 10, 8), darkIndigo, [0.08, -0.02, 0.02], [0.78, 1.0, 0.65]);
 
-    // Coupled 2-segment flowing matte dark Shadow Cloak
-    j.tailRootPivot.position.set(0, 0.26, 0);
-    this.addOutlined(j.tailRootPivot, new THREE.BoxGeometry(1.08, 0.68, 0.08), capeMat, [0, -0.34, -0.05]);
-    j.tailTipPivot.position.set(0, -0.64, -0.05);
-    this.addOutlined(j.tailTipPivot, new THREE.BoxGeometry(0.96, 0.62, 0.07), midnightFur, [0, -0.31, -0.02]);
+    // Coupled 2-segment flowing matte dark Shadow Cloak tailored to leaner torso width
+    j.tailRootPivot.position.set(0, 0.25, 0);
+    this.addOutlined(j.tailRootPivot, new THREE.BoxGeometry(0.84, 0.66, 0.075), capeMat, [0, -0.33, -0.05]);
+    j.tailTipPivot.position.set(0, -0.62, -0.05);
+    this.addOutlined(j.tailTipPivot, new THREE.BoxGeometry(0.76, 0.6, 0.065), midnightFur, [0, -0.3, -0.02]);
 
     // Clean sculpted split Shadow Yeti limbs with obsidian-crystal sky-blue claw tips (NO floating energons!)
     this.buildArticulatedLimbs(j, obsidianRock, midnightFur, obsidianRock, darkIndigo, obsidianEdge, this.inkOutlineMat, 'void', clawMat);
   }
 
   /**
-   * Sculpted 3-fingered + thumb Yeti hand (or clawed hand) so characters never have bare ball hands.
+   * Sculpted sturdy yet athletic 3-fingered + thumb Yeti hand proportioned to match the leaner torso & head.
    */
   private addSculptedHand(
     parent: THREE.Object3D,
@@ -1287,16 +1360,58 @@ export class YetiController {
     side: -1 | 1,
     clawMat?: THREE.Material,
   ): void {
-    this.addOutlined(parent, new THREE.SphereGeometry(0.155, 10, 10), palmMat, [0, -0.34, 0.04], [1.05, 0.88, 1.12], [0, 0, 0], outlineMat);
-    const fingerGeo = new THREE.CapsuleGeometry(0.038, 0.1, 4, 6);
-    for (const fx of [-0.068, 0, 0.068]) {
-      this.addOutlined(parent, fingerGeo, palmMat, [fx, -0.43, 0.11], [1, 1, 1], [0.45, 0, 0], outlineMat, 1.09);
+    // Sturdy sculpted palm with crisp athletic bevel (substantial without looking puffy)
+    this.addOutlined(
+      parent,
+      new THREE.SphereGeometry(0.128, 12, 10),
+      palmMat,
+      [0, -0.335, 0.032],
+      [0.96, 1.02, 0.82],
+      [0, 0, 0],
+      outlineMat,
+      1.07,
+    );
+    const fingerGeo = new THREE.CapsuleGeometry(0.029, 0.108, 4, 7);
+    const thumbGeo = new THREE.CapsuleGeometry(0.03, 0.084, 4, 6);
+    const fingerSpecs: [number, number][] = [
+      [-0.062, 0.96],
+      [0, 1.07],
+      [0.062, 0.96],
+    ];
+    for (const [fx, lenScale] of fingerSpecs) {
+      this.addOutlined(
+        parent,
+        fingerGeo,
+        palmMat,
+        [fx, -0.438, 0.078],
+        [1, lenScale, 0.95],
+        [0.32, 0, -fx * 1.25],
+        outlineMat,
+        1.07,
+      );
       if (clawMat) {
-        this.addOutlined(parent, new THREE.ConeGeometry(0.032, 0.12, 5), clawMat, [fx, -0.5, 0.15], [1, 1, 1], [Math.PI * 0.86, 0, 0], null);
+        this.addOutlined(
+          parent,
+          new THREE.ConeGeometry(0.024, 0.118, 5),
+          clawMat,
+          [fx * 1.06, -0.506, 0.11],
+          [1, 1, 1],
+          [Math.PI * 0.84, 0, 0],
+          null,
+        );
       }
     }
-    // Opposable Yeti thumb pointing inward
-    this.addOutlined(parent, fingerGeo, palmMat, [-side * 0.13, -0.36, 0.1], [1, 0.9, 1], [0.35, 0, -side * 0.65], outlineMat, 1.09);
+    // Sturdy opposable Yeti thumb angled inward
+    this.addOutlined(
+      parent,
+      thumbGeo,
+      palmMat,
+      [-side * 0.108, -0.356, 0.07],
+      [0.98, 0.98, 0.94],
+      [0.28, 0, -side * 0.56],
+      outlineMat,
+      1.07,
+    );
   }
 
   /**
@@ -1307,10 +1422,10 @@ export class YetiController {
     footMat: THREE.Material,
     outlineMat: THREE.Material,
   ): void {
-    this.addOutlined(parent, new THREE.SphereGeometry(0.165, 10, 10), footMat, [0, -0.41, 0.07], [0.95, 0.56, 1.48], [0, 0, 0], outlineMat);
-    const toeGeo = new THREE.SphereGeometry(0.062, 8, 8);
-    for (const tx of [-0.088, 0, 0.088]) {
-      this.addOutlined(parent, toeGeo, footMat, [tx, -0.425, 0.28 - Math.abs(tx) * 0.3], [0.9, 0.72, 1.25], [0, 0, 0], outlineMat, 1.09);
+    this.addOutlined(parent, new THREE.SphereGeometry(0.155, 10, 10), footMat, [0, -0.41, 0.07], [0.94, 0.56, 1.46], [0, 0, 0], outlineMat);
+    const toeGeo = new THREE.SphereGeometry(0.058, 8, 8);
+    for (const tx of [-0.082, 0, 0.082]) {
+      this.addOutlined(parent, toeGeo, footMat, [tx, -0.425, 0.27 - Math.abs(tx) * 0.3], [0.9, 0.72, 1.25], [0, 0, 0], outlineMat, 1.09);
     }
   }
 
@@ -1328,30 +1443,34 @@ export class YetiController {
     const isSlime = style === 'slime';
     const isVoidSplit = style === 'void';
 
-    const deltoidGeo = new THREE.SphereGeometry(0.195, 10, 10);
-    const upperArmGeo = new THREE.CapsuleGeometry(0.155, 0.24, 5, 10);
-    const forearmGeo = new THREE.CapsuleGeometry(0.15, 0.22, 5, 10);
-    const cuffGeo = new THREE.TorusGeometry(0.145, 0.055, 6, 12);
-    cuffGeo.rotateX(Math.PI / 2);
-    const thighGeo = new THREE.CapsuleGeometry(0.185, 0.26, 5, 10);
-    const shinGeo = new THREE.CapsuleGeometry(0.165, 0.24, 5, 10);
+    // Balanced athletic arms leading into sturdier sculpted hands, paired with leaner legs matching the torso
+    const deltoidGeo = new THREE.SphereGeometry(0.154, 10, 10);
+    const upperArmGeo = new THREE.CapsuleGeometry(0.12, 0.25, 5, 10);
+    const forearmGeo = new THREE.CapsuleGeometry(0.106, 0.235, 5, 10);
+    const wristCuffGeo = new THREE.TorusGeometry(0.108, 0.036, 6, 12);
+    wristCuffGeo.rotateX(Math.PI / 2);
+    const ankleCuffGeo = new THREE.TorusGeometry(0.12, 0.04, 6, 12);
+    ankleCuffGeo.rotateX(Math.PI / 2);
+    const thighGeo = new THREE.CapsuleGeometry(0.155, 0.26, 5, 10);
+    const shinGeo = new THREE.CapsuleGeometry(0.138, 0.24, 5, 10);
 
     if (isSlime) {
-      // Glowing chartreuse-lime humerus, dual forearm bones, femur & tibia visible inside translucent slime!
-      const boneGeo = new THREE.CylinderGeometry(0.052, 0.052, 0.3, 6);
-      const jointBoneGeo = new THREE.SphereGeometry(0.072, 8, 8);
-      this.addOutlined(j.leftShoulder, boneGeo, upperMat, [-0.03, -0.18, 0], [1, 1, 1], [0, 0, 0], null);
-      this.addOutlined(j.leftElbow, boneGeo, upperMat, [0, -0.16, 0], [0.85, 0.9, 0.85], [0, 0, 0], null);
-      this.addOutlined(j.leftElbow, jointBoneGeo, upperMat, [0, -0.34, 0.04], [1.1, 0.8, 1.1], [0, 0, 0], null);
+      // Glowing chartreuse-lime humerus, slender forearm bones, femur & tibia inside translucent slime
+      const armBoneGeo = new THREE.CylinderGeometry(0.036, 0.036, 0.29, 6);
+      const legBoneGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.3, 6);
+      const jointBoneGeo = new THREE.SphereGeometry(0.05, 8, 8);
+      this.addOutlined(j.leftShoulder, armBoneGeo, upperMat, [-0.025, -0.18, 0], [1, 1, 1], [0, 0, 0], null);
+      this.addOutlined(j.leftElbow, armBoneGeo, upperMat, [0, -0.16, 0], [0.82, 0.9, 0.82], [0, 0, 0], null);
+      this.addOutlined(j.leftElbow, jointBoneGeo, upperMat, [0, -0.33, 0.03], [0.9, 0.82, 0.7], [0, 0, 0], null);
 
-      this.addOutlined(j.rightShoulder, boneGeo, upperMat, [0.03, -0.18, 0], [1, 1, 1], [0, 0, 0], null);
-      this.addOutlined(j.rightElbow, boneGeo, upperMat, [0, -0.16, 0], [0.85, 0.9, 0.85], [0, 0, 0], null);
-      this.addOutlined(j.rightElbow, jointBoneGeo, upperMat, [0, -0.34, 0.04], [1.1, 0.8, 1.1], [0, 0, 0], null);
+      this.addOutlined(j.rightShoulder, armBoneGeo, upperMat, [0.025, -0.18, 0], [1, 1, 1], [0, 0, 0], null);
+      this.addOutlined(j.rightElbow, armBoneGeo, upperMat, [0, -0.16, 0], [0.82, 0.9, 0.82], [0, 0, 0], null);
+      this.addOutlined(j.rightElbow, jointBoneGeo, upperMat, [0, -0.33, 0.03], [0.9, 0.82, 0.7], [0, 0, 0], null);
 
-      this.addOutlined(j.leftHip, boneGeo, upperMat, [0, -0.22, 0], [1.05, 1.05, 1.05], [0, 0, 0], null);
-      this.addOutlined(j.leftKnee, boneGeo, upperMat, [0, -0.22, 0], [0.9, 0.95, 0.9], [0, 0, 0], null);
-      this.addOutlined(j.rightHip, boneGeo, upperMat, [0, -0.22, 0], [1.05, 1.05, 1.05], [0, 0, 0], null);
-      this.addOutlined(j.rightKnee, boneGeo, upperMat, [0, -0.22, 0], [0.9, 0.95, 0.9], [0, 0, 0], null);
+      this.addOutlined(j.leftHip, legBoneGeo, upperMat, [0, -0.22, 0], [1.05, 1.05, 1.05], [0, 0, 0], null);
+      this.addOutlined(j.leftKnee, legBoneGeo, upperMat, [0, -0.22, 0], [0.9, 0.95, 0.9], [0, 0, 0], null);
+      this.addOutlined(j.rightHip, legBoneGeo, upperMat, [0, -0.22, 0], [1.05, 1.05, 1.05], [0, 0, 0], null);
+      this.addOutlined(j.rightKnee, legBoneGeo, upperMat, [0, -0.22, 0], [0.9, 0.95, 0.9], [0, 0, 0], null);
     }
 
     const leftUpperMat = isSlime ? lowerMat : upperMat;
@@ -1360,29 +1479,29 @@ export class YetiController {
     const rightLowerMat = lowerMat;
 
     // Left Arm (-X)
-    this.addOutlined(j.leftShoulder, deltoidGeo, leftUpperMat, [-0.02, 0.02, 0], [1.06, 0.95, 1.0], [0, 0, 0], outlineMat);
-    this.addOutlined(j.leftShoulder, upperArmGeo, leftUpperMat, [-0.03, -0.18, 0], [1, 1, 1], [0, 0, 0], outlineMat);
-    this.addOutlined(j.leftElbow, forearmGeo, leftLowerMat, [0, -0.16, 0], [1.04, 1, 1.04], [0, 0, 0], outlineMat);
-    this.addOutlined(j.leftElbow, cuffGeo, isVoidSplit ? cuffMat : cuffMat, [0, -0.25, 0], [1.06, 1.15, 1.06], [0, 0, 0], outlineMat);
+    this.addOutlined(j.leftShoulder, deltoidGeo, leftUpperMat, [-0.015, 0.02, 0], [1.02, 0.94, 0.96], [0, 0, 0], outlineMat);
+    this.addOutlined(j.leftShoulder, upperArmGeo, leftUpperMat, [-0.025, -0.18, 0], [1, 1, 1], [0, 0, 0], outlineMat);
+    this.addOutlined(j.leftElbow, forearmGeo, leftLowerMat, [0, -0.155, 0], [0.96, 1, 0.96], [0, 0, 0], outlineMat);
+    this.addOutlined(j.leftElbow, wristCuffGeo, cuffMat, [0, -0.25, 0], [1.02, 1.05, 1.02], [0, 0, 0], outlineMat);
     this.addSculptedHand(j.leftElbow, handMat, outlineMat, -1, clawMat);
 
     // Right Arm (+X)
-    this.addOutlined(j.rightShoulder, deltoidGeo, rightUpperMat, [0.02, 0.02, 0], [1.06, 0.95, 1.0], [0, 0, 0], outlineMat);
-    this.addOutlined(j.rightShoulder, upperArmGeo, rightUpperMat, [0.03, -0.18, 0], [1, 1, 1], [0, 0, 0], outlineMat);
-    this.addOutlined(j.rightElbow, forearmGeo, rightLowerMat, [0, -0.16, 0], [1.04, 1, 1.04], [0, 0, 0], outlineMat);
-    this.addOutlined(j.rightElbow, cuffGeo, isVoidSplit ? rightLowerMat : cuffMat, [0, -0.25, 0], [1.06, 1.15, 1.06], [0, 0, 0], outlineMat);
+    this.addOutlined(j.rightShoulder, deltoidGeo, rightUpperMat, [0.015, 0.02, 0], [1.02, 0.94, 0.96], [0, 0, 0], outlineMat);
+    this.addOutlined(j.rightShoulder, upperArmGeo, rightUpperMat, [0.025, -0.18, 0], [1, 1, 1], [0, 0, 0], outlineMat);
+    this.addOutlined(j.rightElbow, forearmGeo, rightLowerMat, [0, -0.155, 0], [0.96, 1, 0.96], [0, 0, 0], outlineMat);
+    this.addOutlined(j.rightElbow, wristCuffGeo, isVoidSplit ? rightLowerMat : cuffMat, [0, -0.25, 0], [1.02, 1.05, 1.02], [0, 0, 0], outlineMat);
     this.addSculptedHand(j.rightElbow, isVoidSplit ? footMat : handMat, outlineMat, 1, clawMat);
 
     // Left Leg (-X)
     this.addOutlined(j.leftHip, thighGeo, leftUpperMat, [0, -0.22, 0], [1.04, 1, 1.04], [0, 0, 0], outlineMat);
     this.addOutlined(j.leftKnee, shinGeo, leftLowerMat, [0, -0.21, 0], [1.04, 1, 1.04], [0, 0, 0], outlineMat);
-    this.addOutlined(j.leftKnee, cuffGeo, cuffMat, [0, -0.32, 0], [1.1, 1.1, 1.1], [0, 0, 0], outlineMat);
+    this.addOutlined(j.leftKnee, ankleCuffGeo, cuffMat, [0, -0.32, 0], [1.08, 1.08, 1.08], [0, 0, 0], outlineMat);
     this.addSculptedFoot(j.leftKnee, isVoidSplit ? handMat : footMat, outlineMat);
 
     // Right Leg (+X)
     this.addOutlined(j.rightHip, thighGeo, rightUpperMat, [0, -0.22, 0], [1.04, 1, 1.04], [0, 0, 0], outlineMat);
     this.addOutlined(j.rightKnee, shinGeo, rightLowerMat, [0, -0.21, 0], [1.04, 1, 1.04], [0, 0, 0], outlineMat);
-    this.addOutlined(j.rightKnee, cuffGeo, isVoidSplit ? rightLowerMat : cuffMat, [0, -0.32, 0], [1.1, 1.1, 1.1], [0, 0, 0], outlineMat);
+    this.addOutlined(j.rightKnee, ankleCuffGeo, isVoidSplit ? rightLowerMat : cuffMat, [0, -0.32, 0], [1.08, 1.08, 1.08], [0, 0, 0], outlineMat);
     this.addSculptedFoot(j.rightKnee, footMat, outlineMat);
   }
 
@@ -1394,41 +1513,43 @@ export class YetiController {
     organicFur: THREE.Material,
     organicSkin: THREE.Material,
   ): void {
-    const deltoidGeo = new THREE.SphereGeometry(0.195, 10, 10);
-    const upperArmGeo = new THREE.CapsuleGeometry(0.155, 0.24, 5, 10);
-    const forearmGeo = new THREE.CapsuleGeometry(0.15, 0.22, 5, 10);
-    const cuffGeo = new THREE.TorusGeometry(0.145, 0.055, 6, 12);
-    cuffGeo.rotateX(Math.PI / 2);
-    const thighGeo = new THREE.CapsuleGeometry(0.185, 0.26, 5, 10);
-    const shinGeo = new THREE.CapsuleGeometry(0.165, 0.24, 5, 10);
+    const deltoidGeo = new THREE.SphereGeometry(0.154, 10, 10);
+    const upperArmGeo = new THREE.CapsuleGeometry(0.12, 0.25, 5, 10);
+    const forearmGeo = new THREE.CapsuleGeometry(0.106, 0.235, 5, 10);
+    const wristCuffGeo = new THREE.TorusGeometry(0.108, 0.036, 6, 12);
+    wristCuffGeo.rotateX(Math.PI / 2);
+    const ankleCuffGeo = new THREE.TorusGeometry(0.12, 0.04, 6, 12);
+    ankleCuffGeo.rotateX(Math.PI / 2);
+    const thighGeo = new THREE.CapsuleGeometry(0.155, 0.26, 5, 10);
+    const shinGeo = new THREE.CapsuleGeometry(0.138, 0.24, 5, 10);
 
-    // MECHANICAL LEFT ARM (-X): Bolted white-chrome spherical shoulder, twin chrome piston forearm & articulated robotic hand!
-    this.addOutlined(j.leftShoulder, new THREE.SphereGeometry(0.2, 12, 10), mechaMat, [-0.02, 0.02, 0]);
-    this.addOutlined(j.leftShoulder, new THREE.CylinderGeometry(0.125, 0.11, 0.36, 10), mechaMat, [-0.03, -0.18, 0]);
-    this.addOutlined(j.leftShoulder, new THREE.CylinderGeometry(0.032, 0.032, 0.34, 6), chromeMat, [-0.14, -0.18, 0.04], [1, 1, 1], [0, 0, 0], null);
-    this.addOutlined(j.leftElbow, new THREE.SphereGeometry(0.125, 10, 8), darkSteel, [0, 0, 0]);
-    this.addOutlined(j.leftElbow, new THREE.CylinderGeometry(0.12, 0.11, 0.32, 10), chromeMat, [0, -0.16, 0]);
-    this.addOutlined(j.leftElbow, new THREE.BoxGeometry(0.19, 0.2, 0.18), mechaMat, [-0.04, -0.16, 0.03]);
+    // MECHANICAL LEFT ARM (-X): Sturdy white-chrome shoulder, hydraulic forearm & articulated robotic hand
+    this.addOutlined(j.leftShoulder, new THREE.SphereGeometry(0.158, 12, 10), mechaMat, [-0.015, 0.02, 0]);
+    this.addOutlined(j.leftShoulder, new THREE.CylinderGeometry(0.102, 0.09, 0.35, 10), mechaMat, [-0.025, -0.18, 0]);
+    this.addOutlined(j.leftShoulder, new THREE.CylinderGeometry(0.025, 0.025, 0.33, 6), chromeMat, [-0.114, -0.18, 0.03], [1, 1, 1], [0, 0, 0], null);
+    this.addOutlined(j.leftElbow, new THREE.SphereGeometry(0.098, 10, 8), darkSteel, [0, 0, 0]);
+    this.addOutlined(j.leftElbow, new THREE.CylinderGeometry(0.094, 0.084, 0.31, 10), chromeMat, [0, -0.155, 0]);
+    this.addOutlined(j.leftElbow, new THREE.BoxGeometry(0.148, 0.175, 0.138), mechaMat, [-0.025, -0.155, 0.02]);
     this.addSculptedHand(j.leftElbow, mechaMat, this.inkOutlineMat, -1);
 
-    // MECHANICAL LEFT LEG (-X): White-armored hydraulic thigh, bolted steel knee & sculpted armored mecha boot!
-    this.addOutlined(j.leftHip, new THREE.CylinderGeometry(0.16, 0.135, 0.42, 10), mechaMat, [0, -0.22, 0]);
-    this.addOutlined(j.leftHip, new THREE.CylinderGeometry(0.035, 0.035, 0.38, 6), chromeMat, [-0.15, -0.22, 0.04], [1, 1, 1], [0, 0, 0], null);
-    this.addOutlined(j.leftKnee, new THREE.SphereGeometry(0.135, 10, 8), darkSteel, [0, 0, 0.02]);
-    this.addOutlined(j.leftKnee, new THREE.CylinderGeometry(0.13, 0.12, 0.38, 10), chromeMat, [0, -0.21, 0]);
-    this.addOutlined(j.leftKnee, new THREE.BoxGeometry(0.2, 0.26, 0.18), mechaMat, [0, -0.21, 0.06]);
+    // MECHANICAL LEFT LEG (-X): Streamlined hydraulic thigh, bolted steel knee & armored mecha boot
+    this.addOutlined(j.leftHip, new THREE.CylinderGeometry(0.136, 0.116, 0.42, 10), mechaMat, [0, -0.22, 0]);
+    this.addOutlined(j.leftHip, new THREE.CylinderGeometry(0.032, 0.032, 0.38, 6), chromeMat, [-0.128, -0.22, 0.04], [1, 1, 1], [0, 0, 0], null);
+    this.addOutlined(j.leftKnee, new THREE.SphereGeometry(0.12, 10, 8), darkSteel, [0, 0, 0.02]);
+    this.addOutlined(j.leftKnee, new THREE.CylinderGeometry(0.114, 0.106, 0.38, 10), chromeMat, [0, -0.21, 0]);
+    this.addOutlined(j.leftKnee, new THREE.BoxGeometry(0.175, 0.25, 0.16), mechaMat, [0, -0.21, 0.055]);
     this.addSculptedFoot(j.leftKnee, mechaMat, this.inkOutlineMat);
 
-    // ORGANIC RIGHT ARM & LEG (+X): Muscular shaggy white OG Lofi fur with fluffy wrist/ankle cuffs & blue 3-fingered hand / 3-toed foot!
-    this.addOutlined(j.rightShoulder, deltoidGeo, organicFur, [0.02, 0.02, 0]);
-    this.addOutlined(j.rightShoulder, upperArmGeo, organicFur, [0.03, -0.18, 0]);
-    this.addOutlined(j.rightElbow, forearmGeo, organicFur, [0, -0.16, 0], [1.04, 1, 1.04]);
-    this.addOutlined(j.rightElbow, cuffGeo, organicFur, [0, -0.25, 0], [1.08, 1.15, 1.08]);
+    // ORGANIC RIGHT ARM & LEG (+X): Balanced shaggy white OG Lofi fur with sturdy blue 3-fingered hand
+    this.addOutlined(j.rightShoulder, deltoidGeo, organicFur, [0.015, 0.02, 0], [1.02, 0.94, 0.96]);
+    this.addOutlined(j.rightShoulder, upperArmGeo, organicFur, [0.025, -0.18, 0]);
+    this.addOutlined(j.rightElbow, forearmGeo, organicFur, [0, -0.155, 0], [0.98, 1, 0.98]);
+    this.addOutlined(j.rightElbow, wristCuffGeo, organicFur, [0, -0.25, 0], [1.02, 1.05, 1.02]);
     this.addSculptedHand(j.rightElbow, organicSkin, this.inkOutlineMat, 1);
 
-    this.addOutlined(j.rightHip, thighGeo, organicFur, [0, -0.22, 0], [1.04, 1, 1.04]);
-    this.addOutlined(j.rightKnee, shinGeo, organicFur, [0, -0.21, 0], [1.04, 1, 1.04]);
-    this.addOutlined(j.rightKnee, cuffGeo, organicFur, [0, -0.32, 0], [1.1, 1.1, 1.1]);
+    this.addOutlined(j.rightHip, thighGeo, organicFur, [0, -0.22, 0], [1.02, 1, 1.02]);
+    this.addOutlined(j.rightKnee, shinGeo, organicFur, [0, -0.21, 0], [1.02, 1, 1.02]);
+    this.addOutlined(j.rightKnee, ankleCuffGeo, organicFur, [0, -0.32, 0], [1.06, 1.06, 1.06]);
     this.addSculptedFoot(j.rightKnee, organicSkin, this.inkOutlineMat);
   }
 
@@ -1969,15 +2090,16 @@ export class YetiController {
       j.rightHip.rotation.x = sR * 0.96 - 0.1;
       j.rightKnee.rotation.x = Math.max(0.08, -cR * 1.15 + 0.35);
 
-      j.leftShoulder.rotation.set(sR * 0.92 + limbLag * 0.3, 0, 0.14);
-      j.leftElbow.rotation.x = -0.58 - Math.max(0, -sR) * 0.55;
+      // Arms pump freely OUTSIDE the torso (negative Z = left outward, positive Z = right outward!)
+      j.leftShoulder.rotation.set(sR * 0.96 + limbLag * 0.3, 0, -0.28 - Math.abs(sR) * 0.08);
+      j.leftElbow.rotation.set(-0.62 - Math.max(0, -sR) * 0.52, 0, -0.06);
 
       if (swordActive) {
-        j.rightShoulder.rotation.set(-0.68 + sL * 0.22, 0, -0.24);
-        j.rightElbow.rotation.x = -0.45;
+        j.rightShoulder.rotation.set(-0.68 + sL * 0.22, 0, 0.36);
+        j.rightElbow.rotation.set(-0.45, 0, 0.06);
       } else {
-        j.rightShoulder.rotation.set(sL * 0.92 + limbLag * 0.3, 0, -0.14);
-        j.rightElbow.rotation.x = -0.58 - Math.max(0, -sL) * 0.55;
+        j.rightShoulder.rotation.set(sL * 0.96 + limbLag * 0.3, 0, 0.28 + Math.abs(sL) * 0.08);
+        j.rightElbow.rotation.set(-0.62 - Math.max(0, -sL) * 0.52, 0, 0.06);
       }
     } else if (state === 'jump' || state === 'flip') {
       const airTilt = THREE.MathUtils.clamp(-velocityY * 0.024, -0.28, 0.34);
@@ -1989,57 +2111,52 @@ export class YetiController {
       j.chest.rotation.set(0, 0, 0);
       j.head.rotation.set(-0.1 + headLag, 0, 0);
 
-      // Character-unique Jump & Backflip poses!
+      // Character-unique Jump & Backflip poses with free outward arm clearance!
       if (charId === 'og_lofi') {
-        // Chill tucked grab backflip / relaxed parkour vault
         j.leftHip.rotation.x = isFlipping ? -1.35 : -0.92;
         j.leftKnee.rotation.x = isFlipping ? 1.75 : 1.25;
         j.rightHip.rotation.x = isFlipping ? -1.25 : 0.28;
         j.rightKnee.rotation.x = isFlipping ? 1.65 : 0.72;
-        j.leftShoulder.rotation.set(isFlipping ? -0.6 : -1.1 + limbLag, 0, isFlipping ? 0.55 : 0.42);
-        j.leftElbow.rotation.x = isFlipping ? -1.1 : -0.55;
-        j.rightShoulder.rotation.set(isFlipping ? -0.6 : -1.1 + limbLag, 0, isFlipping ? -0.55 : -0.42);
-        j.rightElbow.rotation.x = isFlipping ? -1.1 : -0.55;
+        j.leftShoulder.rotation.set(isFlipping ? -0.6 : -1.1 + limbLag, 0, isFlipping ? -0.58 : -0.48);
+        j.leftElbow.rotation.set(isFlipping ? -1.05 : -0.55, 0, -0.06);
+        j.rightShoulder.rotation.set(isFlipping ? -0.6 : -1.1 + limbLag, 0, isFlipping ? 0.58 : 0.48);
+        j.rightElbow.rotation.set(isFlipping ? -1.05 : -0.55, 0, 0.06);
       } else if (charId === 'inferno_blaze') {
-        // Aggressive blazing torpedo tuck
         j.leftHip.rotation.x = isFlipping ? -1.4 : -0.75;
         j.leftKnee.rotation.x = isFlipping ? 1.85 : 1.1;
         j.rightHip.rotation.x = isFlipping ? -1.4 : -0.45;
         j.rightKnee.rotation.x = isFlipping ? 1.85 : 1.2;
-        j.leftShoulder.rotation.set(isFlipping ? -2.2 : -1.4 + limbLag, 0, 0.35);
-        j.leftElbow.rotation.x = -0.35;
-        j.rightShoulder.rotation.set(isFlipping ? -2.2 : -1.4 + limbLag, 0, -0.35);
-        j.rightElbow.rotation.x = -0.35;
+        j.leftShoulder.rotation.set(isFlipping ? -2.2 : -1.4 + limbLag, 0, -0.44);
+        j.leftElbow.rotation.set(-0.35, 0, -0.06);
+        j.rightShoulder.rotation.set(isFlipping ? -2.2 : -1.4 + limbLag, 0, 0.44);
+        j.rightElbow.rotation.set(-0.35, 0, 0.06);
       } else if (charId === 'neon_slime') {
-        // Springy elastic cannonball / star stretch
         j.leftHip.rotation.x = isFlipping ? -1.5 : -0.55;
         j.leftKnee.rotation.x = isFlipping ? 1.9 : 0.65;
         j.rightHip.rotation.x = isFlipping ? -1.5 : -0.55;
         j.rightKnee.rotation.x = isFlipping ? 1.9 : 0.65;
-        j.leftShoulder.rotation.set(-1.3 + limbLag * 1.4, 0, 0.75);
-        j.leftElbow.rotation.x = -0.25;
-        j.rightShoulder.rotation.set(-1.3 + limbLag * 1.4, 0, -0.75);
-        j.rightElbow.rotation.x = -0.25;
+        j.leftShoulder.rotation.set(-1.3 + limbLag * 1.4, 0, -0.78);
+        j.leftElbow.rotation.set(-0.25, 0, -0.06);
+        j.rightShoulder.rotation.set(-1.3 + limbLag * 1.4, 0, 0.78);
+        j.rightElbow.rotation.set(-0.25, 0, 0.06);
       } else if (charId === 'half_cyborg') {
-        // Thruster-stabilized precision aerial stance
         j.leftHip.rotation.x = isFlipping ? -1.25 : -0.85;
         j.leftKnee.rotation.x = isFlipping ? 1.65 : 1.15;
         j.rightHip.rotation.x = isFlipping ? -1.1 : 0.15;
         j.rightKnee.rotation.x = isFlipping ? 1.5 : 0.45;
-        j.leftShoulder.rotation.set(0.45 + limbLag * 0.5, 0, 0.35);
-        j.leftElbow.rotation.x = -0.3;
-        j.rightShoulder.rotation.set(-1.25 + limbLag, 0, -0.35);
-        j.rightElbow.rotation.x = -0.65;
+        j.leftShoulder.rotation.set(0.45 + limbLag * 0.5, 0, -0.44);
+        j.leftElbow.rotation.set(-0.3, 0, -0.06);
+        j.rightShoulder.rotation.set(-1.25 + limbLag, 0, 0.44);
+        j.rightElbow.rotation.set(-0.65, 0, 0.06);
       } else {
-        // Void Shadow: sleek ninja somersault with clawed arms swept back
         j.leftHip.rotation.x = isFlipping ? -1.42 : -0.95;
         j.leftKnee.rotation.x = isFlipping ? 1.8 : 1.3;
         j.rightHip.rotation.x = isFlipping ? -1.3 : 0.3;
         j.rightKnee.rotation.x = isFlipping ? 1.7 : 0.8;
-        j.leftShoulder.rotation.set(0.65 + limbLag * 0.4, 0, 0.65);
-        j.leftElbow.rotation.x = -0.35;
-        j.rightShoulder.rotation.set(0.65 + limbLag * 0.4, 0, -0.65);
-        j.rightElbow.rotation.x = -0.35;
+        j.leftShoulder.rotation.set(0.65 + limbLag * 0.4, 0, -0.68);
+        j.leftElbow.rotation.set(-0.35, 0, -0.06);
+        j.rightShoulder.rotation.set(0.65 + limbLag * 0.4, 0, 0.68);
+        j.rightElbow.rotation.set(-0.35, 0, 0.06);
       }
     } else if (state === 'slide') {
       j.hips.position.y = 0.72;
@@ -2048,37 +2165,34 @@ export class YetiController {
       j.chest.rotation.set(-0.12, 0, 0);
       j.head.rotation.set(0.26 + headLag * 0.6, -0.18, 0);
 
-      // Character-unique Slide poses!
+      // Character-unique Slide poses with wide outward arm balance!
       if (charId === 'og_lofi') {
-        // Stylish one-hand surfer power-slide
         j.leftHip.rotation.x = -1.2;
         j.leftKnee.rotation.x = 0.15;
         j.rightHip.rotation.x = 0.45;
         j.rightKnee.rotation.x = 1.25;
-        j.leftShoulder.rotation.set(0.85, 0, 0.55);
-        j.leftElbow.rotation.x = -0.25;
-        j.rightShoulder.rotation.set(-0.75, 0, -0.65);
-        j.rightElbow.rotation.x = -0.45;
+        j.leftShoulder.rotation.set(0.85, 0, -0.58);
+        j.leftElbow.rotation.set(-0.25, 0, -0.06);
+        j.rightShoulder.rotation.set(-0.75, 0, 0.68);
+        j.rightElbow.rotation.set(-0.45, 0, 0.06);
       } else if (charId === 'neon_slime') {
-        // Flat ooze glide
         j.leftHip.rotation.x = -1.1;
         j.leftKnee.rotation.x = 0.1;
         j.rightHip.rotation.x = -1.1;
         j.rightKnee.rotation.x = 0.1;
-        j.leftShoulder.rotation.set(0.4, 0, 0.85);
-        j.leftElbow.rotation.x = -0.2;
-        j.rightShoulder.rotation.set(0.4, 0, -0.85);
-        j.rightElbow.rotation.x = -0.2;
+        j.leftShoulder.rotation.set(0.4, 0, -0.88);
+        j.leftElbow.rotation.set(-0.2, 0, -0.06);
+        j.rightShoulder.rotation.set(0.4, 0, 0.88);
+        j.rightElbow.rotation.set(-0.2, 0, 0.06);
       } else {
-        // Athletic baseball / phantom / hydraulic slide
         j.leftHip.rotation.x = -1.15;
         j.leftKnee.rotation.x = 0.18;
         j.rightHip.rotation.x = 0.48;
         j.rightKnee.rotation.x = 1.18;
-        j.leftShoulder.rotation.set(0.65, 0, 0.48);
-        j.leftElbow.rotation.x = -0.4;
-        j.rightShoulder.rotation.set(0.65, 0, -0.48);
-        j.rightElbow.rotation.x = -0.4;
+        j.leftShoulder.rotation.set(0.65, 0, -0.54);
+        j.leftElbow.rotation.set(-0.4, 0, -0.06);
+        j.rightShoulder.rotation.set(0.65, 0, 0.54);
+        j.rightElbow.rotation.set(-0.4, 0, 0.06);
       }
     } else if (state === 'fly') {
       j.hips.position.y = 0.96;
@@ -2087,28 +2201,24 @@ export class YetiController {
       j.chest.rotation.set(0.12, 0, 0);
       j.head.rotation.set(-0.32 + headLag, 0, 0);
 
-      // Character-unique Star Flight poses + Barrel Roll / Loop / Swoop wing articulation!
       const barrelTuck = flyBarrelProgress > 0 ? Math.sin(flyBarrelProgress * Math.PI) : 0;
       const swoopTuck = flySwoopProgress > 0 ? Math.sin(flySwoopProgress * Math.PI) : 0;
 
       if (charId === 'inferno_blaze' || charId === 'void_shadow') {
-        // Swept-back rocket/phantom jet pose
-        j.leftShoulder.rotation.set(0.75 + swoopTuck * 0.4, 0, 0.55 - barrelTuck * 0.35);
-        j.leftElbow.rotation.x = -0.2;
-        j.rightShoulder.rotation.set(0.75 + swoopTuck * 0.4, 0, -0.55 + barrelTuck * 0.35);
-        j.rightElbow.rotation.x = -0.2;
+        j.leftShoulder.rotation.set(0.75 + swoopTuck * 0.4, 0, -0.58 + barrelTuck * 0.22);
+        j.leftElbow.rotation.set(-0.2, 0, -0.06);
+        j.rightShoulder.rotation.set(0.75 + swoopTuck * 0.4, 0, 0.58 - barrelTuck * 0.22);
+        j.rightElbow.rotation.set(-0.2, 0, 0.06);
       } else if (charId === 'half_cyborg') {
-        // Iron-jet thruster stabilizer pose
-        j.leftShoulder.rotation.set(0.55, 0, 0.45 - barrelTuck * 0.25);
-        j.leftElbow.rotation.x = -0.15;
-        j.rightShoulder.rotation.set(-1.65, 0, -0.25);
-        j.rightElbow.rotation.x = -0.15;
+        j.leftShoulder.rotation.set(0.55, 0, -0.52 + barrelTuck * 0.18);
+        j.leftElbow.rotation.set(-0.15, 0, -0.06);
+        j.rightShoulder.rotation.set(-1.65, 0, 0.36);
+        j.rightElbow.rotation.set(-0.15, 0, 0.06);
       } else {
-        // Classic Superman / Star-Glider twin-arm forward soar
-        j.leftShoulder.rotation.set(-1.6 + swoopTuck * 0.5, 0, 0.42 - barrelTuck * 0.3);
-        j.leftElbow.rotation.x = -0.2;
-        j.rightShoulder.rotation.set(-1.6 + swoopTuck * 0.5, 0, -0.42 + barrelTuck * 0.3);
-        j.rightElbow.rotation.x = -0.2;
+        j.leftShoulder.rotation.set(-1.6 + swoopTuck * 0.5, 0, -0.48 + barrelTuck * 0.2);
+        j.leftElbow.rotation.set(-0.2, 0, -0.06);
+        j.rightShoulder.rotation.set(-1.6 + swoopTuck * 0.5, 0, 0.48 - barrelTuck * 0.2);
+        j.rightElbow.rotation.set(-0.2, 0, 0.06);
       }
 
       j.leftHip.rotation.x = 0.32 + Math.sin(elapsed * 8) * 0.14;
@@ -2116,7 +2226,7 @@ export class YetiController {
       j.rightHip.rotation.x = 0.32 - Math.sin(elapsed * 8) * 0.14;
       j.rightKnee.rotation.x = 0.28 + barrelTuck * 0.55;
     } else if (state === 'worldSlide') {
-      // Dynamic carving snowboard / chute-surf crouch down the curved world slide!
+      // Dynamic carving snowboard / chute-surf crouch with arms stretched wide outside torso!
       const carve = THREE.MathUtils.clamp(laneVelocity * 0.04, -0.36, 0.36);
       const bump = Math.sin(elapsed * 14) * 0.04;
       j.hips.position.y = 0.78 + bump;
@@ -2130,12 +2240,12 @@ export class YetiController {
       j.rightHip.rotation.set(-0.48, 0, 0.14);
       j.rightKnee.rotation.x = 0.85;
 
-      j.leftShoulder.rotation.set(-0.25 + bump, 0, 0.92 - carve * 0.4);
-      j.leftElbow.rotation.x = -0.32;
-      j.rightShoulder.rotation.set(-0.25 - bump, 0, -0.92 - carve * 0.4);
-      j.rightElbow.rotation.x = -0.32;
+      j.leftShoulder.rotation.set(-0.25 + bump, 0, -0.92 + carve * 0.35);
+      j.leftElbow.rotation.set(-0.32, 0, -0.08);
+      j.rightShoulder.rotation.set(-0.25 - bump, 0, 0.92 + carve * 0.35);
+      j.rightElbow.rotation.set(-0.32, 0, 0.08);
     } else if (state === 'spaceFloat') {
-      // Weightless Zero-G cosmic drift pose floating through Cyborg Space!
+      // Weightless Zero-G cosmic drift pose with arms floating freely outward!
       const drift = Math.sin(elapsed * 2.4);
       const drift2 = Math.cos(elapsed * 1.9);
       j.hips.position.y = 0.96 + drift * 0.05;
@@ -2149,66 +2259,62 @@ export class YetiController {
       j.rightHip.rotation.x = 0.14 - drift * 0.24;
       j.rightKnee.rotation.x = 0.62 + drift2 * 0.22;
 
-      j.leftShoulder.rotation.set(-0.48 + drift2 * 0.25, 0, 0.72 + drift * 0.18);
-      j.leftElbow.rotation.x = -0.45;
-      j.rightShoulder.rotation.set(-0.48 - drift2 * 0.25, 0, -0.72 - drift * 0.18);
-      j.rightElbow.rotation.x = -0.45;
+      j.leftShoulder.rotation.set(-0.48 + drift2 * 0.25, 0, -0.76 - drift * 0.18);
+      j.leftElbow.rotation.set(-0.42, 0, -0.08);
+      j.rightShoulder.rotation.set(-0.48 - drift2 * 0.25, 0, 0.76 + drift * 0.18);
+      j.rightElbow.rotation.set(-0.42, 0, 0.08);
     }
 
     // 3-Phase (Anticipation -> Explosive Strike Snap -> Follow-Through), 3-Hit Combo Sword Swings!
-    // Inspired by SlashSaber & SamuraiThirdPersonTemplateThreeJS full-body kinetic slash curves.
     if (slashProgress > 0 && slashProgress < 1) {
       const comboStep = slashComboIndex % 3;
       const anticipate = THREE.MathUtils.clamp(slashProgress / 0.18, 0, 1);
       const strikeRaw = THREE.MathUtils.clamp((slashProgress - 0.18) / 0.44, 0, 1);
-      // Explosive quintic ease-out snap during strike window
       const strike = 1 - Math.pow(1 - strikeRaw, 4);
       const follow = THREE.MathUtils.clamp((slashProgress - 0.62) / 0.38, 0, 1);
       const wristSnap = Math.sin(strikeRaw * Math.PI);
 
       if (comboStep === 0) {
-        // HIT 1: High-to-Low Diagonal Forehand Cleave with torso coil & hip follow-through
+        // HIT 1: High-to-Low Diagonal Forehand Cleave with clear outward arm sweep
         const shX = -0.6 - anticipate * 2.2 + strike * 4.15 - follow * 0.45;
-        const shZ = -0.25 - anticipate * 0.65 - wristSnap * 0.95 + follow * 0.4;
+        const shZ = 0.36 + anticipate * 0.62 + wristSnap * 0.48 - follow * 0.25;
         j.rightShoulder.rotation.set(shX, 0.25 * wristSnap, shZ);
-        j.rightElbow.rotation.x = -0.75 + strike * 0.65 - follow * 0.25;
+        j.rightElbow.rotation.set(-0.72 + strike * 0.62 - follow * 0.22, 0, 0.08);
         this.swordGroup.rotation.set(Math.PI * 0.44 + wristSnap * 0.68, 0, -wristSnap * 0.35);
 
         j.chest.rotation.y = -0.68 * anticipate + strike * 1.48 - follow * 0.35;
         j.hips.rotation.y = -0.28 * anticipate + strike * 0.62;
         j.spine.rotation.x += -0.18 * anticipate + wristSnap * 0.34;
-        j.leftShoulder.rotation.set(0.55 * strike, 0, 0.52 + 0.35 * wristSnap);
+        j.leftShoulder.rotation.set(0.55 * strike, 0, -0.58 - 0.34 * wristSnap);
       } else if (comboStep === 1) {
         // HIT 2: Low-to-High Reverse Backhand Uppercut Sweep
         const shX = 0.85 + anticipate * 0.75 - strike * 4.1 + follow * 0.55;
-        const shZ = -0.15 + anticipate * 0.35 - wristSnap * 1.15;
+        const shZ = 0.32 + anticipate * 0.25 + wristSnap * 0.82;
         j.rightShoulder.rotation.set(shX, -0.35 * wristSnap, shZ);
-        j.rightElbow.rotation.x = -0.55 + strike * 0.42;
+        j.rightElbow.rotation.set(-0.55 + strike * 0.42, 0, 0.08);
         this.swordGroup.rotation.set(Math.PI * 0.44 - wristSnap * 0.52, Math.PI * 0.85, wristSnap * 0.42);
 
         j.chest.rotation.y = 0.72 * anticipate - strike * 1.52 + follow * 0.35;
         j.hips.rotation.y = 0.32 * anticipate - strike * 0.65;
         j.spine.rotation.x += 0.16 * anticipate - wristSnap * 0.26;
-        j.leftShoulder.rotation.set(-0.45 * strike, 0, 0.65);
+        j.leftShoulder.rotation.set(-0.45 * strike, 0, -0.68);
       } else {
-        // HIT 3: 360° Full-Body Whirlwind Horizontal Spin Cleave (sword extended wide!)
-        j.rightShoulder.rotation.set(-1.32, 0.4 * strike, -1.38);
-        j.rightElbow.rotation.x = -0.12;
+        // HIT 3: 360° Full-Body Whirlwind Horizontal Spin Cleave (both arms extended wide!)
+        j.rightShoulder.rotation.set(-1.32, 0.4 * strike, 1.38);
+        j.rightElbow.rotation.set(-0.12, 0, 0.06);
         this.swordGroup.rotation.set(Math.PI * 0.5, 0, -0.42);
 
         j.chest.rotation.y = 0.48 * strike;
         j.spine.rotation.x += 0.18;
-        j.leftShoulder.rotation.set(-0.95, 0, 1.15);
-        j.leftElbow.rotation.x = -0.25;
+        j.leftShoulder.rotation.set(-0.95, 0, -1.18);
+        j.leftElbow.rotation.set(-0.25, 0, -0.06);
       }
 
-      // Void Shadow sweeps BOTH arms for dramatic twin-blade flair
       if (charId === 'void_shadow' && comboStep !== 2) {
-        j.leftShoulder.rotation.set(-2.3 + strike * 3.5, 0, 0.58 + wristSnap * 0.85);
-        j.leftElbow.rotation.x = -0.2;
+        j.leftShoulder.rotation.set(-2.3 + strike * 3.5, 0, -0.62 - wristSnap * 0.75);
+        j.leftElbow.rotation.set(-0.2, 0, -0.08);
       }
     } else {
-      // Return sword grip rotation cleanly to athletic ready angle when not mid-slash
       this.swordGroup.rotation.set(Math.PI * 0.44, 0, 0);
     }
 
@@ -2286,27 +2392,27 @@ export class YetiController {
         Math.sin(elapsed * 1.9) * 0.09 + waveBlend * 0.08,
       );
 
-      // Left arm grooves rhythmically; right arm grooves then raises for a warm friendly wave!
+      // Left arm grooves rhythmically OUTSIDE the body; right arm grooves then raises high & wide to wave!
       j.leftShoulder.rotation.set(
         0.1 + halfBeat * 0.24 - emote * 1.35,
         0,
-        0.24 + bob * 0.1 + emote * 0.38,
+        -0.36 - bob * 0.12 - emote * 0.34,
       );
-      j.leftElbow.rotation.x = -0.52 - bob * 0.24 - emote * 0.35;
+      j.leftElbow.rotation.set(-0.52 - bob * 0.24 - emote * 0.35, 0, -0.08);
 
       const grooveRightShX = 0.1 - halfBeat * 0.24 - emote * 1.35;
-      const grooveRightShZ = -0.24 - bob * 0.1 - emote * 0.38;
+      const grooveRightShZ = 0.36 + bob * 0.12 + emote * 0.34;
       const grooveRightElbX = -0.52 - bob * 0.24 - emote * 0.35;
 
       j.rightShoulder.rotation.set(
         THREE.MathUtils.lerp(grooveRightShX, -2.35, waveBlend),
         0,
-        THREE.MathUtils.lerp(grooveRightShZ, -0.55 + waveOsc * 0.28, waveBlend),
+        THREE.MathUtils.lerp(grooveRightShZ, 0.72 + waveOsc * 0.32, waveBlend),
       );
-      j.rightElbow.rotation.x = THREE.MathUtils.lerp(
-        grooveRightElbX,
-        -0.55 - Math.abs(waveOsc) * 0.25,
-        waveBlend,
+      j.rightElbow.rotation.set(
+        THREE.MathUtils.lerp(grooveRightElbX, -0.5 - Math.abs(waveOsc) * 0.25, waveBlend),
+        0,
+        THREE.MathUtils.lerp(0.08, 0.18 + waveOsc * 0.14, waveBlend),
       );
 
       // Alternating bouncy knees & subtle heel-lift step groove
@@ -2317,7 +2423,7 @@ export class YetiController {
       j.rightHip.rotation.set(-bob * 0.18 - rightStep * 0.16 - emote * 0.32, 0, 0.05);
       j.rightKnee.rotation.x = bob * 0.34 + rightStep * 0.24 + emote * 0.62;
     } else if (charId === 'inferno_blaze') {
-      // Energetic fighter bounce with alternating boxer shoulder rolls & fist-pump roar!
+      // Energetic fighter bounce with wide open boxer guard & fist-pump roar!
       const bounce = Math.abs(Math.sin(elapsed * 4.8));
       const sway = Math.sin(elapsed * 2.4);
       const loopT = elapsed % 6.4;
@@ -2329,17 +2435,17 @@ export class YetiController {
       j.chest.rotation.set(-0.04 + bounce * 0.07, sway * 0.08, 0);
       j.head.rotation.set(-0.06 + bounce * 0.07 - pump * 0.12, Math.sin(elapsed * 1.4) * 0.18, 0);
 
-      j.leftShoulder.rotation.set(-0.62 - sway * 0.2 - emote * 1.0 - pump * 0.95, 0, 0.48 + pump * 0.22);
-      j.leftElbow.rotation.x = -1.18 - bounce * 0.18 + pump * 0.3;
-      j.rightShoulder.rotation.set(-0.62 + sway * 0.2 - emote * 1.0 - pump * 0.95, 0, -0.48 - pump * 0.22);
-      j.rightElbow.rotation.x = -1.18 - bounce * 0.18 + pump * 0.3;
+      j.leftShoulder.rotation.set(-0.62 - sway * 0.2 - emote * 1.0 - pump * 0.95, 0, -0.54 - pump * 0.24);
+      j.leftElbow.rotation.set(-1.12 - bounce * 0.18 + pump * 0.3, 0, -0.1);
+      j.rightShoulder.rotation.set(-0.62 + sway * 0.2 - emote * 1.0 - pump * 0.95, 0, 0.54 + pump * 0.24);
+      j.rightElbow.rotation.set(-1.12 - bounce * 0.18 + pump * 0.3, 0, 0.1);
 
       j.leftHip.rotation.set(-0.14 - bounce * 0.12, 0, -0.1);
       j.leftKnee.rotation.x = 0.28 + bounce * 0.22;
       j.rightHip.rotation.set(-0.14 - bounce * 0.12, 0, 0.1);
       j.rightKnee.rotation.x = 0.28 + bounce * 0.22;
     } else if (charId === 'neon_slime') {
-      // Playful elastic jiggle-groove with fluid rubbery arms and happy head tilt
+      // Playful elastic jiggle-groove with fluid rubbery arms swinging freely outside the body
       const wave = Math.sin(elapsed * 3.8);
       const wave2 = Math.sin(elapsed * 3.8 - 0.85);
       j.hips.position.y = 0.93 + wave * 0.065;
@@ -2348,10 +2454,10 @@ export class YetiController {
       j.chest.rotation.set(0, wave2 * 0.06, wave * 0.09);
       j.head.rotation.set(wave2 * 0.12, Math.sin(elapsed * 1.6) * 0.24, -wave * 0.14);
 
-      j.leftShoulder.rotation.set(0.15 + wave * 0.3 - emote * 1.4, 0, 0.38 + wave2 * 0.22);
-      j.leftElbow.rotation.x = -0.38 + wave2 * 0.24;
-      j.rightShoulder.rotation.set(0.15 - wave * 0.3 - emote * 1.4, 0, -0.38 - wave2 * 0.22);
-      j.rightElbow.rotation.x = -0.38 - wave2 * 0.24;
+      j.leftShoulder.rotation.set(0.15 + wave * 0.3 - emote * 1.4, 0, -0.48 - wave2 * 0.22);
+      j.leftElbow.rotation.set(-0.38 + wave2 * 0.24, 0, -0.1);
+      j.rightShoulder.rotation.set(0.15 - wave * 0.3 - emote * 1.4, 0, 0.48 + wave2 * 0.22);
+      j.rightElbow.rotation.set(-0.38 - wave2 * 0.24, 0, 0.1);
 
       j.leftHip.rotation.x = -0.08 - Math.abs(wave) * 0.14 - emote * 0.4;
       j.leftKnee.rotation.x = 0.16 + Math.abs(wave) * 0.26 + emote * 0.7;
@@ -2370,18 +2476,18 @@ export class YetiController {
       j.chest.rotation.set(0, Math.sin(elapsed * 1.5) * 0.06, 0);
       j.head.rotation.set(0.02 + breathe * 0.05, THREE.MathUtils.damp(j.head.rotation.y, servoAngle, 12, 0.03), 0);
 
-      j.leftShoulder.rotation.set(-0.55 - emote * 0.9, 0, 0.3);
-      j.leftElbow.rotation.x = -0.92 + Math.sin(step * 2.4) * 0.3;
+      j.leftShoulder.rotation.set(-0.55 - emote * 0.9, 0, -0.42);
+      j.leftElbow.rotation.set(-0.92 + Math.sin(step * 2.4) * 0.3, 0, -0.08);
 
-      j.rightShoulder.rotation.set(0.12 + breathe * 0.16 - emote * 1.2, 0, -0.22);
-      j.rightElbow.rotation.x = -0.42 - bob * 0.18;
+      j.rightShoulder.rotation.set(0.12 + breathe * 0.16 - emote * 1.2, 0, 0.36);
+      j.rightElbow.rotation.set(-0.42 - bob * 0.18, 0, 0.08);
 
       j.leftHip.rotation.x = -bob * 0.1;
       j.leftKnee.rotation.x = 0.1 + bob * 0.18;
       j.rightHip.rotation.x = -bob * 0.1;
       j.rightKnee.rotation.x = 0.1 + bob * 0.18;
     } else {
-      // Void Shadow: poised ethereal hover with rhythmic cloak sway & subtle clawed hand weave
+      // Void Shadow: poised ethereal hover with arms floating freely outside the shadow cloak
       const hover = Math.sin(elapsed * 2.4);
       const drift = Math.cos(elapsed * 1.5);
       j.hips.position.y = 0.98 + hover * 0.055;
@@ -2390,10 +2496,10 @@ export class YetiController {
       j.chest.rotation.set(0.04 - emote * 0.15, drift * 0.06, 0);
       j.head.rotation.set(0.06 + hover * 0.06, Math.sin(elapsed * 1.1) * 0.2, drift * 0.05);
 
-      j.leftShoulder.rotation.set(-0.32 + drift * 0.14 - emote * 1.0, 0, 0.46 + hover * 0.12);
-      j.leftElbow.rotation.x = -0.82 + hover * 0.12;
-      j.rightShoulder.rotation.set(-0.32 - drift * 0.14 - emote * 1.0, 0, -0.46 - hover * 0.12);
-      j.rightElbow.rotation.x = -0.82 - hover * 0.12;
+      j.leftShoulder.rotation.set(-0.32 + drift * 0.14 - emote * 1.0, 0, -0.56 - hover * 0.14);
+      j.leftElbow.rotation.set(-0.78 + hover * 0.12, 0, -0.1);
+      j.rightShoulder.rotation.set(-0.32 - drift * 0.14 - emote * 1.0, 0, 0.56 + hover * 0.14);
+      j.rightElbow.rotation.set(-0.78 - hover * 0.12, 0, 0.1);
 
       j.leftHip.rotation.x = 0.22 + hover * 0.1;
       j.leftKnee.rotation.x = 0.36 - hover * 0.08;

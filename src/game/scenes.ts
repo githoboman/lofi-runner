@@ -10,6 +10,7 @@ import {
   loadArtTextures,
 } from './textures';
 import type { SceneId } from './types';
+import { InfernoAnimeController } from './infernoAnime';
 import {
   createLavaTemplePool,
   createNeonSewerPool,
@@ -198,6 +199,7 @@ export class WorldManager {
   private keyLight: THREE.DirectionalLight;
   private rimLight: THREE.DirectionalLight;
   private threeScene: THREE.Scene;
+  private infernoAnime: InfernoAnimeController | null = null;
 
   constructor(
     scene: THREE.Scene,
@@ -305,6 +307,9 @@ export class WorldManager {
 
     this.rimLight.color.setHex(spec.rimColor);
     this.rimLight.intensity = spec.rimIntensity;
+
+    // Run anime.js choreography only while the Inferno Caldera world is active
+    this.infernoAnime?.setActive(sceneId === 'inferno_caldera');
   }
 
   public update(dt: number, speed: number, elapsed: number, playerX = 0): void {
@@ -365,8 +370,8 @@ export class WorldManager {
       }
     }
 
-    // Animated magma / slime liquid ocean surface
-    if (bundle.liquidFloor) {
+    // Animated magma / slime liquid ocean surface (Inferno Caldera uses anime.js choreography!)
+    if (bundle.liquidFloor && bundle.id !== 'inferno_caldera') {
       bundle.liquidFloor.position.y = -1.6 + Math.sin(elapsed * 2.1) * 0.14;
     }
 
@@ -844,14 +849,24 @@ export class WorldManager {
     liquidFloor.position.set(0, -1.7, WRAP_FRONT_Z - TOTAL_LENGTH / 2);
     root.add(liquidFloor);
 
+    // Dedicated anime.js v4 choreography for Inferno Caldera (magma surge, staggered braziers, runes, gusts & light breathing)
+    const infernoAnime = new InfernoAnimeController(SEGMENT_COUNT * 4);
+    this.infernoAnime = infernoAnime;
+
     // Pooled InstancedMesh Lava Temple Ruins + Swinging Iron Pendulum Chains (~189 -> 13 draw calls!)
-    const pooledSystem = createLavaTemplePool(TOTAL_LENGTH, WRAP_FRONT_Z);
+    const pooledSystem = createLavaTemplePool(TOTAL_LENGTH, WRAP_FRONT_Z, infernoAnime);
     root.add(pooledSystem.group);
 
-    const updateDynamic = (elapsed: number, dt: number) => {
-      // Slow tectonic drift of the cooled brown volcanic magma crust below
-      brownMagmaTex.offset.y = (brownMagmaTex.offset.y + dt * 0.14) % 1;
-      brownMagmaTex.offset.x = Math.sin(elapsed * 0.25) * 0.04;
+    const updateDynamic = (_elapsed: number, dt: number) => {
+      const a = infernoAnime.state;
+      // anime.js-driven tectonic magma ocean heave, emissive glow surge, and lateral volcanic sway
+      liquidFloor.position.y = a.magmaWaveY;
+      lavaMat.emissiveIntensity = a.magmaEmissive;
+      brownMagmaTex.offset.y = (brownMagmaTex.offset.y + dt * a.magmaFlowRate) % 1;
+      brownMagmaTex.offset.x = a.magmaSwayX;
+      // Subtle volcanic light breathing choreographed by anime.js timeline
+      this.rimLight.intensity = spec.rimIntensity * a.rimIntensityMult;
+      this.keyLight.intensity = spec.keyIntensity * a.keyIntensityMult;
     };
 
     const parallaxLayers = this.createParallaxBackdrops('inferno_caldera', 0.005, 0.016, 0.72);
@@ -1278,6 +1293,8 @@ export class WorldManager {
   }
 
   public dispose(): void {
+    this.infernoAnime?.dispose();
+    this.infernoAnime = null;
     this.artTextures.forEach((t) => t.dispose());
     this.artMaterials.forEach((m) => m.dispose());
     this.skyDome.geometry.dispose();

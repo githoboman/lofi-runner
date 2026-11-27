@@ -5,6 +5,7 @@ import {
   Cloud,
   Coins,
   Copy,
+  Crown,
   Edit3,
   ExternalLink,
   LogOut,
@@ -25,10 +26,15 @@ import {
   normalizeSuiIdentifier,
   type SuiNetworkHealth,
 } from '../blockchain/walletService';
-import type { GoogleAccountProfile } from '../firebase';
-import { CHARACTERS } from '../game/config';
+import { isInEmbeddedIframe, type GoogleAccountProfile } from '../firebase';
+import { CHARACTERS, getCharacterById } from '../game/config';
 import { isCharacterUnlocked } from '../game/storage';
-import type { CharacterId, SaveData, SuiNetworkId } from '../game/types';
+import type {
+  CharacterId,
+  DailyLeaderboardEntry,
+  SaveData,
+  SuiNetworkId,
+} from '../game/types';
 
 export type PendingSuiAction =
   | { type: 'claim_coins' }
@@ -43,8 +49,13 @@ interface Web3HubOverlayProps {
   suiBalanceFormatted: string | null;
   busyAction: string | null;
   statusMessage: string | null;
+  dailyRuns: DailyLeaderboardEntry[];
+  dailyRunsLoading: boolean;
+  dailyRunsError: string | null;
+  onRefreshDailyRuns: () => void;
   onClose: () => void;
   onSignInGoogle: () => void;
+  onSignInGoogleRedirect: () => void;
   onSignOutGoogle: () => void;
   onSwitchNetwork: (network: SuiNetworkId) => void;
   onSaveSuiIdentifier: (identifier: string) => Promise<void>;
@@ -52,6 +63,48 @@ interface Web3HubOverlayProps {
   onClaimCoins: (overrideIdentifier?: string) => void;
   onSubmitScore: (overrideIdentifier?: string) => void;
   onMintYetiNft: (charId: CharacterId, overrideIdentifier?: string) => void;
+}
+
+function formatRelativeAge(timestampMs: number): string {
+  const diffSec = Math.max(0, Math.floor((Date.now() - timestampMs) / 1000));
+  if (diffSec < 60) return 'Just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  return `${diffHr}h ago`;
+}
+
+function RunnerAvatar({
+  photoURL,
+  displayName,
+  accentHex,
+}: {
+  photoURL: string;
+  displayName: string;
+  accentHex: string;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  if (photoURL && !failed) {
+    return (
+      <img
+        src={photoURL}
+        alt={displayName}
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+        className="h-8 w-8 shrink-0 rounded-lg border border-white/15 object-cover"
+      />
+    );
+  }
+
+  return (
+    <div
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/15 font-[var(--font-display)] text-[11px] font-extrabold text-slate-950"
+      style={{ backgroundColor: accentHex }}
+    >
+      {displayName.slice(0, 2).toUpperCase()}
+    </div>
+  );
 }
 
 function GoogleLogo({ className = 'h-4 w-4' }: { className?: string }) {
@@ -84,8 +137,13 @@ export function Web3HubOverlay({
   suiBalanceFormatted,
   busyAction,
   statusMessage,
+  dailyRuns,
+  dailyRunsLoading,
+  dailyRunsError,
+  onRefreshDailyRuns,
   onClose,
   onSignInGoogle,
+  onSignInGoogleRedirect,
   onSignOutGoogle,
   onSwitchNetwork,
   onSaveSuiIdentifier,
@@ -279,7 +337,7 @@ export function Web3HubOverlay({
                     type="button"
                     disabled={!authReady || busyAction !== null}
                     onClick={onSignInGoogle}
-                    className="flex items-center justify-center gap-2.5 rounded-xl bg-white px-4 py-2.5 text-xs font-bold text-slate-900 hover:bg-slate-100 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap min-h-[40px]"
+                    className="flex items-center justify-center gap-2.5 rounded-xl bg-white px-4 py-2.5 text-xs font-bold text-slate-900 hover:bg-slate-100 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap min-h-[42px] touch-manipulation"
                   >
                     <GoogleLogo className="h-4 w-4" />
                     {busyAction === 'google_auth' ? 'Signing in...' : 'Sign in with Google'}
@@ -421,9 +479,182 @@ export function Web3HubOverlay({
             )}
 
             {statusMessage && (
-              <div className="mt-3 rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
-                {statusMessage}
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
+                <span>{statusMessage}</span>
+                {!account && !isInEmbeddedIframe() && (
+                  <button
+                    type="button"
+                    disabled={busyAction !== null}
+                    onClick={onSignInGoogleRedirect}
+                    className="rounded-md bg-sky-400 px-2.5 py-1 text-[11px] font-bold text-slate-950 hover:bg-sky-300 cursor-pointer whitespace-nowrap touch-manipulation shrink-0"
+                  >
+                    Use Full-Page Sign-In
+                  </button>
+                )}
               </div>
+            )}
+          </section>
+
+          {/* Community Daily Top Run Leaderboard (Rolling 24-Hour Window) */}
+          <section className="rounded-xl border border-white/12 bg-[#111a2e] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <Crown className="h-4 w-4 text-amber-300 shrink-0" />
+                <div>
+                  <h3 className="font-[var(--font-display)] text-sm font-bold text-white leading-tight">
+                    Daily Top Run
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Top 10 community scores · Rolling 24-hour window
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={dailyRunsLoading}
+                onClick={onRefreshDailyRuns}
+                className="flex items-center gap-1.5 rounded-lg border border-white/12 bg-[#080d19] px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 hover:bg-white/5 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <RefreshCw className={`h-3 w-3 ${dailyRunsLoading ? 'animate-spin' : ''}`} />
+                {dailyRunsLoading ? 'Updating...' : 'Refresh'}
+              </button>
+            </div>
+
+            {dailyRunsError ? (
+              <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-lg border border-rose-400/25 bg-rose-500/10 px-3.5 py-3 text-xs text-rose-200">
+                <span>{dailyRunsError}</span>
+                <button
+                  type="button"
+                  onClick={onRefreshDailyRuns}
+                  className="rounded-lg border border-rose-300/35 bg-rose-400/15 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-rose-400/25 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  Try Again
+                </button>
+              </div>
+            ) : dailyRunsLoading && dailyRuns.length === 0 ? (
+              <div className="mt-3 space-y-2">
+                {[0, 1, 2].map((idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between rounded-lg border border-white/8 bg-[#080d19] px-3 py-2.5"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="h-4 w-6 rounded bg-white/10" />
+                      <div className="h-8 w-8 rounded-lg bg-white/10" />
+                      <div className="space-y-1.5">
+                        <div className="h-3 w-28 rounded bg-white/10" />
+                        <div className="h-2.5 w-20 rounded bg-white/8" />
+                      </div>
+                    </div>
+                    <div className="h-4 w-16 rounded bg-white/10" />
+                  </div>
+                ))}
+              </div>
+            ) : dailyRuns.length === 0 ? (
+              <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-white/8 bg-[#080d19] px-4 py-4">
+                <div>
+                  <div className="text-xs font-semibold text-white">
+                    No runs posted in the last 24 hours yet
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-slate-400">
+                    {account
+                      ? 'Complete a run to claim #1 on today’s community leaderboard.'
+                      : 'Sign in with Google and complete a run to claim #1 on today’s board.'}
+                  </p>
+                </div>
+                {!account && (
+                  <button
+                    type="button"
+                    disabled={!authReady || busyAction !== null}
+                    onClick={onSignInGoogle}
+                    className="flex items-center justify-center gap-2 rounded-lg bg-white px-3.5 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 cursor-pointer whitespace-nowrap shrink-0 touch-manipulation"
+                  >
+                    <GoogleLogo className="h-3.5 w-3.5" />
+                    Sign in to Compete
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="mt-3 space-y-1.5">
+                {dailyRuns.slice(0, 10).map((entry, idx) => {
+                  const rank = idx + 1;
+                  const isMe = account?.uid === entry.uid;
+                  const charCfg = getCharacterById(entry.characterId);
+                  const rankColor =
+                    rank === 1
+                      ? 'text-amber-300'
+                      : rank === 2
+                        ? 'text-slate-200'
+                        : rank === 3
+                          ? 'text-orange-300'
+                          : 'text-slate-400';
+
+                  return (
+                    <div
+                      key={entry.id}
+                      className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 transition-colors ${
+                        isMe
+                          ? 'border-sky-400/45 bg-sky-500/10'
+                          : rank === 1
+                            ? 'border-amber-400/30 bg-amber-500/[0.06]'
+                            : 'border-white/8 bg-[#080d19]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                        <span
+                          className={`w-6 text-center font-[var(--font-mono)] text-xs font-extrabold tabular-nums shrink-0 ${rankColor}`}
+                        >
+                          #{rank}
+                        </span>
+
+                        <RunnerAvatar
+                          photoURL={entry.photoURL}
+                          displayName={entry.displayName}
+                          accentHex={charCfg.accentHex}
+                        />
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-xs font-bold text-white truncate">
+                              {entry.displayName}
+                            </span>
+                            {isMe && (
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-300 shrink-0">
+                                You
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+                            <span className="font-semibold" style={{ color: charCfg.accentHex }}>
+                              {charCfg.name}
+                            </span>
+                            <span aria-hidden="true">·</span>
+                            <span className="capitalize">{entry.difficulty}</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{formatRelativeAge(entry.createdAtMs)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right font-[var(--font-mono)] tabular-nums shrink-0">
+                        <div className="text-xs sm:text-sm font-extrabold text-white">
+                          {entry.score.toLocaleString()}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {entry.distance.toLocaleString()}m
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!account && dailyRuns.length > 0 && (
+              <p className="mt-2.5 text-[11px] text-slate-400">
+                Sign in with Google to automatically post your completed runs to the 24-hour leaderboard.
+              </p>
             )}
           </section>
 

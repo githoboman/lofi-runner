@@ -2,14 +2,20 @@ import { getApp, getApps, initializeApp } from 'firebase/app';
 import {
   GoogleAuthProvider,
   browserLocalPersistence,
+  browserPopupRedirectResolver,
+  browserSessionPersistence,
   getAuth,
+  getRedirectResult,
+  indexedDBLocalPersistence,
+  initializeAuth,
   onAuthStateChanged,
-  setPersistence,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   type User,
 } from 'firebase/auth';
 import {
+  Timestamp,
   collection,
   doc,
   getDoc,
@@ -18,12 +24,12 @@ import {
   getFirestore,
   initializeFirestore,
   limit,
+  orderBy,
   query,
   serverTimestamp,
   setDoc,
   updateDoc,
   where,
-  type Timestamp,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 import { CHARACTERS, STORE_BOOSTERS, STORE_UPGRADES } from './game/config';
@@ -31,6 +37,8 @@ import { DEFAULT_BOOSTERS, DEFAULT_UPGRADES } from './game/storage';
 import type {
   BoosterId,
   CharacterId,
+  DailyLeaderboardEntry,
+  DifficultyId,
   MintedYetiNft,
   OnChainReceipt,
   SaveData,
@@ -67,7 +75,23 @@ export interface FirestoreErrorInfo {
 }
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+
+// Initialize Auth with IndexedDB -> Local -> Session persistence chain + explicit popupRedirectResolver
+// so mobile Safari, mobile Chrome, and standalone webviews retain Google sessions cleanly without racing.
+export const auth = (() => {
+  try {
+    return initializeAuth(app, {
+      persistence: [
+        indexedDBLocalPersistence,
+        browserLocalPersistence,
+        browserSessionPersistence,
+      ],
+      popupRedirectResolver: browserPopupRedirectResolver,
+    });
+  } catch {
+    return getAuth(app);
+  }
+})();
 
 // Force HTTP long-polling so Cloud Firestore connects reliably through sandboxed iframes,
 // mobile networks, and strict proxies that stall WebChannel streaming connections.
@@ -86,13 +110,25 @@ export const db = (() => {
   }
 })();
 
-// Ensure smooth session persistence across desktop and mobile reloads
-setPersistence(auth, browserLocalPersistence).catch(() => {
-  // Ignore if restricted in private browsing
-});
-
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export function isMobileBrowser(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  return (
+    /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i.test(navigator.userAgent) ||
+    window.matchMedia?.('(pointer: coarse)').matches === true
+  );
+}
+
+export function isInEmbeddedIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
 
 export function handleFirestoreError(
   error: unknown,
@@ -149,13 +185,63 @@ export function toGoogleAccountProfile(user: User): GoogleAccountProfile {
   };
 }
 
+export interface GoogleSignInOutcome {
+  user: User | null;
+  redirected: boolean;
+}
+
 /**
- * Initiates Sign in with Google via signInWithPopup (works smoothly on both desktop & mobile
- * when called directly from a user tap/click handler).
+ * Completes a returning mobile Google OAuth redirect sign-in on app startup.
  */
-export async function signInWithGoogle(): Promise<User> {
-  const result = await signInWithPopup(auth, googleProvider);
-  return result.user;
+export async function completeGoogleRedirectSignIn(): Promise<User | null> {
+  try {
+    const result = await getRedirectResult(auth, browserPopupRedirectResolver);
+    return result?.user ?? null;
+  } catch (err) {
+    console.warn('Google redirect sign-in check:', err);
+    return null;
+  }
+}
+
+/**
+ * Starts Google Sign-In using signInWithPopup first (preserving the synchronous user tap gesture
+ * for iOS Safari / Android Chrome and embedded previews), and automatically falls back to
+ * signInWithRedirect on top-level mobile browsers when popups are blocked or unsupported.
+ */
+export async function signInWithGoogle(): Promise<GoogleSignInOutcome> {
+  const startedAt = Date.now();
+  try {
+    const result = await signInWithPopup(auth, googleProvider, browserPopupRedirectResolver);
+    return { user: result.user, redirected: false };
+  } catch (err) {
+    const code = (err as { code?: string })?.code ?? '';
+    const elapsedMs = Date.now() - startedAt;
+    const isMobile = isMobileBrowser();
+    const inIframe = isInEmbeddedIframe();
+
+    const shouldFallbackToRedirect =
+      !inIframe &&
+      isMobile &&
+      (code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment' ||
+        code === 'auth/web-storage-unsupported' ||
+        code === 'auth/internal-error' ||
+        (code === 'auth/popup-closed-by-user' && elapsedMs < 900));
+
+    if (shouldFallbackToRedirect) {
+      await signInWithRedirect(auth, googleProvider, browserPopupRedirectResolver);
+      return { user: null, redirected: true };
+    }
+
+    throw err;
+  }
+}
+
+/**
+ * Explicit full-page redirect sign-in fallback for mobile browsers that block popups.
+ */
+export async function signInWithGoogleRedirect(): Promise<void> {
+  await signInWithRedirect(auth, googleProvider, browserPopupRedirectResolver);
 }
 
 export async function signOutGoogle(): Promise<void> {
@@ -494,4 +580,161 @@ export async function recordCloudReceipt(
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, receiptPath);
   }
+}
+
+export const DAILY_LEADERBOARD_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+interface CloudDailyRunDoc {
+  uid: string;
+  displayName: string;
+  photoURL: string;
+  characterId: CharacterId;
+  difficulty: DifficultyId;
+  score: number;
+  distance: number;
+  runCoins: number;
+  createdAt?: Timestamp;
+}
+
+const VALID_CHARACTER_IDS = new Set<CharacterId>(CHARACTERS.map((c) => c.id));
+const VALID_DIFFICULTIES = new Set<DifficultyId>(['easy', 'normal', 'hard']);
+
+/**
+ * Records an immutable, PII-free community run score in /dailyRuns/{runId}
+ * for the rolling 24-hour Daily Top Run leaderboard.
+ */
+export async function recordDailyRun(
+  user: User,
+  save: SaveData,
+  run: {
+    score: number;
+    distance: number;
+    runCoins: number;
+    characterId: CharacterId;
+    difficulty: DifficultyId;
+  },
+): Promise<DailyLeaderboardEntry | null> {
+  const cleanScore = Math.min(100_000_000, Math.floor(Number.isFinite(run.score) ? run.score : 0));
+  if (cleanScore < 1 || !user.emailVerified) {
+    return null;
+  }
+
+  // Ensure parent user profile exists (required by Master Gate in firestore.rules)
+  await syncCloudProfile(user, save);
+
+  const safeUidPart = user.uid.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'runner';
+  const randPart = Math.random().toString(36).slice(2, 8);
+  const runId = `run_${Date.now()}_${safeUidPart}_${randPart}`.slice(0, 120);
+  const runPath = `dailyRuns/${runId}`;
+  const runRef = doc(db, 'dailyRuns', runId);
+
+  const displayName =
+    (user.displayName || user.email?.split('@')[0] || 'Yeti Runner').trim().slice(0, 80) ||
+    'Yeti Runner';
+  const photoURL = (user.photoURL || '').slice(0, 500);
+  const characterId: CharacterId = VALID_CHARACTER_IDS.has(run.characterId)
+    ? run.characterId
+    : 'og_lofi';
+  const difficulty: DifficultyId = VALID_DIFFICULTIES.has(run.difficulty)
+    ? run.difficulty
+    : 'normal';
+  const distance = Math.min(10_000_000, Math.max(0, Math.floor(Number.isFinite(run.distance) ? run.distance : 0)));
+  const runCoins = Math.min(10_000_000, Math.max(0, Math.floor(Number.isFinite(run.runCoins) ? run.runCoins : 0)));
+
+  try {
+    await setDoc(runRef, {
+      uid: user.uid,
+      displayName,
+      photoURL,
+      characterId,
+      difficulty,
+      score: cleanScore,
+      distance,
+      runCoins,
+      createdAt: serverTimestamp(),
+    });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, runPath);
+  }
+
+  return {
+    id: runId,
+    uid: user.uid,
+    displayName,
+    photoURL,
+    characterId,
+    difficulty,
+    score: cleanScore,
+    distance,
+    runCoins,
+    createdAtMs: Date.now(),
+  };
+}
+
+/**
+ * Fetches the top community runs recorded within the rolling 24-hour window.
+ * Uses a single-field createdAt range query (zero composite index required)
+ * and ranks each player's highest 24-hour run client-side.
+ */
+export async function fetchDailyTopRuns(maxEntries = 10): Promise<DailyLeaderboardEntry[]> {
+  const cutoffMs = Date.now() - DAILY_LEADERBOARD_WINDOW_MS;
+  const cutoffTs = Timestamp.fromMillis(cutoffMs);
+
+  let snap;
+  try {
+    const q = query(
+      collection(db, 'dailyRuns'),
+      where('createdAt', '>=', cutoffTs),
+      orderBy('createdAt', 'desc'),
+      limit(200),
+    );
+    snap = await getDocs(q);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'dailyRuns');
+  }
+
+  const bestByPlayer = new Map<string, DailyLeaderboardEntry>();
+
+  for (const d of snap.docs) {
+    const raw = d.data() as Partial<CloudDailyRunDoc>;
+    if (!raw || typeof raw.uid !== 'string' || typeof raw.score !== 'number' || raw.score < 1) {
+      continue;
+    }
+    const createdAtMs = raw.createdAt ? raw.createdAt.toMillis() : 0;
+    if (createdAtMs < cutoffMs) continue;
+
+    const entry: DailyLeaderboardEntry = {
+      id: d.id,
+      uid: raw.uid,
+      displayName: (typeof raw.displayName === 'string' && raw.displayName.trim()) || 'Yeti Runner',
+      photoURL: typeof raw.photoURL === 'string' ? raw.photoURL : '',
+      characterId: VALID_CHARACTER_IDS.has(raw.characterId as CharacterId)
+        ? (raw.characterId as CharacterId)
+        : 'og_lofi',
+      difficulty: VALID_DIFFICULTIES.has(raw.difficulty as DifficultyId)
+        ? (raw.difficulty as DifficultyId)
+        : 'normal',
+      score: Math.floor(raw.score),
+      distance: typeof raw.distance === 'number' && Number.isFinite(raw.distance) ? Math.max(0, Math.floor(raw.distance)) : 0,
+      runCoins: typeof raw.runCoins === 'number' && Number.isFinite(raw.runCoins) ? Math.max(0, Math.floor(raw.runCoins)) : 0,
+      createdAtMs,
+    };
+
+    const existingBest = bestByPlayer.get(entry.uid);
+    if (
+      !existingBest ||
+      entry.score > existingBest.score ||
+      (entry.score === existingBest.score && entry.distance > existingBest.distance)
+    ) {
+      bestByPlayer.set(entry.uid, entry);
+    }
+  }
+
+  return Array.from(bestByPlayer.values())
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.distance !== a.distance) return b.distance - a.distance;
+      return b.createdAtMs - a.createdAtMs;
+    })
+    .slice(0, maxEntries);
 }

@@ -98,6 +98,22 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isValidDailyRun(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.uid.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && data.photoURL is string && data.photoURL.size() <= 500
+        && data.characterId is string && data.characterId.size() <= 32
+        && data.characterId in ['og_lofi', 'inferno_blaze', 'neon_slime', 'half_cyborg', 'void_shadow']
+        && data.difficulty is string && data.difficulty.size() <= 16
+        && data.difficulty in ['easy', 'normal', 'hard']
+        && data.score is int && data.score >= 1 && data.score <= 100000000
+        && data.distance is int && data.distance >= 0 && data.distance <= 10000000
+        && data.runCoins is int && data.runCoins >= 0 && data.runCoins <= 10000000
+        && data.createdAt is timestamp;
+    }
+
     // Owner-only player profile & cloud save (PII strictly isolated)
     match /users/{userId} {
       allow get: if isValidId(userId) && isOwner(userId);
@@ -165,6 +181,31 @@ service cloud.firestore {
 
         allow update, delete: if false;
       }
+    }
+
+    // Public PII-free community leaderboard runs (rolling 24-hour Daily Top Run window)
+    match /dailyRuns/{runId} {
+      allow get: if isValidId(runId)
+        && existing().createdAt >= request.time - duration.value(48, 'h');
+
+      allow list: if request.query.limit <= 200
+        && existing().createdAt >= request.time - duration.value(48, 'h');
+
+      allow create: if isVerifiedEmail()
+        && isValidId(runId)
+        && incoming().keys().hasAll([
+          'uid', 'displayName', 'photoURL', 'characterId', 'difficulty',
+          'score', 'distance', 'runCoins', 'createdAt'
+        ])
+        && incoming().keys().hasOnly([
+          'uid', 'displayName', 'photoURL', 'characterId', 'difficulty',
+          'score', 'distance', 'runCoins', 'createdAt'
+        ])
+        && isValidDailyRun(incoming())
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+
+      allow update, delete: if false;
     }
   }
 }

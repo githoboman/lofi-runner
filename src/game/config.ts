@@ -3,11 +3,71 @@ import type {
   CharacterId,
   DifficultyConfig,
   DifficultyId,
+  MusicBeatConfig,
+  MusicBeatId,
   SceneId,
   SoundKey,
   StoreBoosterConfig,
   StoreUpgradeConfig,
 } from './types';
+
+export const MUSIC_BEATS: MusicBeatConfig[] = [
+  {
+    id: 'auto',
+    name: 'World Sync',
+    genre: 'Matches each Yeti world',
+    bpmLabel: 'Dynamic',
+    worldHint: 'Switches beat automatically through portals',
+  },
+  {
+    id: 'lofi_boombap',
+    name: 'Lofi Boom-Bap',
+    genre: 'Dusty Hip-Hop · Rhodes',
+    bpmLabel: '92 BPM',
+    worldHint: 'Frost Sanctuary',
+  },
+  {
+    id: 'phonk_trap',
+    name: 'Phonk 808 Trap',
+    genre: '808 Slides · Cowbell',
+    bpmLabel: '134 BPM',
+    worldHint: 'Inferno Caldera',
+  },
+  {
+    id: 'afro_amapiano',
+    name: 'Afro Log-Drum',
+    genre: 'Afrobeats · Amapiano',
+    bpmLabel: '114 BPM',
+    worldHint: 'Slime Catacombs',
+  },
+  {
+    id: 'cyber_synthwave',
+    name: 'Cyber Synthwave',
+    genre: '80s Retrowave · Electro',
+    bpmLabel: '124 BPM',
+    worldHint: 'Cyber Foundry',
+  },
+  {
+    id: 'liquid_dnb',
+    name: 'Liquid DnB',
+    genre: 'UK Breakbeat · Reese Bass',
+    bpmLabel: '166 BPM',
+    worldHint: 'Void Gallery',
+  },
+];
+
+export const SCENE_MUSIC_BEATS: Record<SceneId, Exclude<MusicBeatId, 'auto'>> = {
+  frost_sanctuary: 'lofi_boombap',
+  inferno_caldera: 'phonk_trap',
+  slime_catacombs: 'afro_amapiano',
+  cyber_foundry: 'cyber_synthwave',
+  void_gallery: 'liquid_dnb',
+};
+
+export function getMusicBeatLabel(beat: MusicBeatId, sceneId: SceneId): string {
+  const resolved = beat === 'auto' ? SCENE_MUSIC_BEATS[sceneId] : beat;
+  return MUSIC_BEATS.find((b) => b.id === resolved)?.name ?? 'Lofi Boom-Bap';
+}
 
 export const STORE_UPGRADES: StoreUpgradeConfig[] = [
   {
@@ -184,7 +244,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
     description: '4 lives · Fast chill pace',
     lives: 4,
     startSpeed: 26,
-    maxSpeed: 52,
+    maxSpeed: 54,
     speedRampPerUnit: 0.0055,
     scoreMultiplier: 1.0,
   },
@@ -194,7 +254,7 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
     description: '3 lives · High-speed arcade',
     lives: 3,
     startSpeed: 33,
-    maxSpeed: 64,
+    maxSpeed: 68,
     speedRampPerUnit: 0.0075,
     scoreMultiplier: 1.25,
   },
@@ -204,11 +264,32 @@ export const DIFFICULTIES: Record<DifficultyId, DifficultyConfig> = {
     description: '2 lives · Turbo · Dense gauntlets',
     lives: 2,
     startSpeed: 40,
-    maxSpeed: 74,
+    maxSpeed: 78,
     speedRampPerUnit: 0.0095,
     scoreMultiplier: 1.6,
   },
 };
+
+/**
+ * Progressive non-linear acceleration curve based on distance traveled:
+ * 1. Smoothly accelerates with a super-linear opening surge (exp(- (d/scale)^1.18))
+ *    so speed builds noticeably through every biome.
+ * 2. Transitions seamlessly into a sustained logarithmic overdrive past 1,200m so
+ *    long marathon runs keep getting progressively faster and more intense.
+ */
+export function computeProgressiveSpeed(diff: DifficultyConfig, distance: number): number {
+  const d = Math.max(0, distance);
+  const curveScale = diff.id === 'hard' ? 1900 : diff.id === 'normal' ? 2250 : 2650;
+  const overdriveScale = diff.id === 'hard' ? 7.8 : diff.id === 'normal' ? 6.2 : 4.5;
+  const overdriveCap = diff.id === 'hard' ? 20 : diff.id === 'normal' ? 16 : 12;
+
+  const primaryProgress = 1 - Math.exp(-Math.pow(d / curveScale, 1.18));
+  const coreSpeed = diff.startSpeed + (diff.maxSpeed - diff.startSpeed) * primaryProgress;
+  const overdrive =
+    d > 1200 ? Math.min(overdriveCap, overdriveScale * Math.log1p((d - 1200) / 1400)) : 0;
+
+  return coreSpeed + overdrive;
+}
 
 export const CHARACTERS: CharacterConfig[] = [
   {

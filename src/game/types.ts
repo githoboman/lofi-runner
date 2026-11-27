@@ -76,6 +76,19 @@ export interface MintedYetiNft {
   digest: string;
 }
 
+export interface DailyLeaderboardEntry {
+  id: string;
+  uid: string;
+  displayName: string;
+  photoURL: string;
+  characterId: CharacterId;
+  difficulty: DifficultyId;
+  score: number;
+  distance: number;
+  runCoins: number;
+  createdAtMs: number;
+}
+
 export interface BlockchainSaveState {
   suiIdentifier: string;
   network: SuiNetworkId;
@@ -126,8 +139,26 @@ export interface CharacterConfig {
   perks: CharacterPerks;
 }
 
+export type MusicBeatId =
+  | 'auto'
+  | 'lofi_boombap'
+  | 'phonk_trap'
+  | 'afro_amapiano'
+  | 'cyber_synthwave'
+  | 'liquid_dnb';
+
+export interface MusicBeatConfig {
+  id: MusicBeatId;
+  name: string;
+  genre: string;
+  bpmLabel: string;
+  worldHint: string;
+}
+
 export interface GameSettings {
   sfxEnabled: boolean;
+  musicEnabled: boolean;
+  musicBeat: MusicBeatId;
   showHints: boolean;
   difficulty: DifficultyId;
 }
@@ -169,6 +200,11 @@ export interface HudSnapshot {
   portalDestination: string | null; // Approaching 3D portal destination label
   sceneToast: string | null;
   yetiSource: 'procedural' | 'glb';
+  replayActive: boolean;
+  replayStuntLabel: string | null;
+  replayProgress: number; // 0..1 playback progress across captured highlight
+  replayRecordedSec: number; // seconds captured (up to 5.0s)
+  replaySlowMo: boolean;
 }
 
 export type SoundKey =

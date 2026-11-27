@@ -175,6 +175,70 @@
         "digest",
         "createdAt"
       ]
+    },
+    "DailyRunEntry": {
+      "title": "DailyRunEntry",
+      "description": "Immutable, PII-free community run score entry used to rank the Daily Top Run leaderboard for the rolling 24-hour window.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Runner Firebase Auth UID."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Public runner display name (never email)."
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional public avatar URL."
+        },
+        "characterId": {
+          "type": "string",
+          "enum": ["og_lofi", "inferno_blaze", "neon_slime", "half_cyborg", "void_shadow"],
+          "maxLength": 32,
+          "description": "Yeti character used during the run."
+        },
+        "difficulty": {
+          "type": "string",
+          "enum": ["easy", "normal", "hard"],
+          "maxLength": 16,
+          "description": "Difficulty mode played."
+        },
+        "score": {
+          "type": "number",
+          "description": "Final run score (positive integer, bounded)."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Distance traveled in meters (non-negative integer, bounded)."
+        },
+        "runCoins": {
+          "type": "number",
+          "description": "SUI Runner Coins collected during the run (non-negative integer, bounded)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the run was recorded."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "photoURL",
+        "characterId",
+        "difficulty",
+        "score",
+        "distance",
+        "runCoins",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -185,6 +249,10 @@
     "/users/{userId}/receipts/{receiptId}": {
       "schema": { "$ref": "#/entities/OnChainReceiptRecord" },
       "description": "Immutable owner-only receipts for coin claims, Yeti NFT mints, and verified score submissions."
+    },
+    "/dailyRuns/{runId}": {
+      "schema": { "$ref": "#/entities/DailyRunEntry" },
+      "description": "Immutable, PII-free community run entries queried within the rolling 24-hour window for the Daily Top Run top-10 leaderboard."
     }
   }
 }

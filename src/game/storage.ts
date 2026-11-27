@@ -1,9 +1,10 @@
-import { CHARACTERS, STORE_BOOSTERS, STORE_UPGRADES } from './config';
+import { CHARACTERS, MUSIC_BEATS, STORE_BOOSTERS, STORE_UPGRADES } from './config';
 import type {
   BoosterId,
   CharacterId,
   DifficultyId,
   MintedYetiNft,
+  MusicBeatId,
   OnChainReceipt,
   SaveData,
   SuiNetworkId,
@@ -48,6 +49,8 @@ export const DEFAULT_SAVE: SaveData = {
   },
   settings: {
     sfxEnabled: true,
+    musicEnabled: true,
+    musicBeat: 'auto',
     showHints: true,
     difficulty: 'normal',
   },
@@ -67,6 +70,10 @@ function isValidBooster(val: unknown): val is BoosterId {
 
 function isValidNetwork(val: unknown): val is SuiNetworkId {
   return val === 'testnet' || val === 'mainnet';
+}
+
+function isValidMusicBeat(val: unknown): val is MusicBeatId {
+  return MUSIC_BEATS.some((b) => b.id === val);
 }
 
 export function isCharacterUnlocked(save: SaveData, charId: CharacterId): boolean {
@@ -200,6 +207,11 @@ export function loadSaveData(): SaveData {
 
     const sfxEnabled =
       typeof parsed.settings?.sfxEnabled === 'boolean' ? parsed.settings.sfxEnabled : true;
+    const musicEnabled =
+      typeof parsed.settings?.musicEnabled === 'boolean' ? parsed.settings.musicEnabled : true;
+    const musicBeat: MusicBeatId = isValidMusicBeat(parsed.settings?.musicBeat)
+      ? parsed.settings.musicBeat
+      : 'auto';
     const showHints =
       typeof parsed.settings?.showHints === 'boolean' ? parsed.settings.showHints : true;
     const difficulty = isValidDifficulty(parsed.settings?.difficulty)
@@ -219,6 +231,8 @@ export function loadSaveData(): SaveData {
       blockchain,
       settings: {
         sfxEnabled,
+        musicEnabled,
+        musicBeat,
         showHints,
         difficulty,
       },

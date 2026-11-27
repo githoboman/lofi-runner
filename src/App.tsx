@@ -3,8 +3,10 @@ import {
   AlertTriangle,
   ChevronLeft,
   Coins,
+  FastForward,
   Heart,
   Lock,
+  Music,
   Pause,
   Play,
   RotateCcw,
@@ -28,9 +30,14 @@ import {
 import { StoreOverlay } from './components/StoreOverlay';
 import { Web3HubOverlay } from './components/Web3HubOverlay';
 import {
+  completeGoogleRedirectSignIn,
+  fetchDailyTopRuns,
+  isInEmbeddedIframe,
   loadAndMergeCloudProfile,
   recordCloudReceipt,
+  recordDailyRun,
   signInWithGoogle,
+  signInWithGoogleRedirect,
   signOutGoogle,
   subscribeToAuth,
   syncCloudProfile,
@@ -41,6 +48,7 @@ import type { User as FirebaseUser } from 'firebase/auth';
 import {
   CHARACTERS,
   DIFFICULTIES,
+  MUSIC_BEATS,
   SCENE_NAMES,
   SCENE_ORDER,
   SCENE_SHORT_NAMES,
@@ -49,6 +57,7 @@ import {
   STORE_UPGRADES,
   SWORD_DURATION,
   getCharacterById,
+  getMusicBeatLabel,
   getUpgradeCost,
 } from './game/config';
 import { RunnerEngine } from './game/engine';
@@ -61,9 +70,11 @@ import {
 import type {
   BoosterId,
   CharacterId,
+  DailyLeaderboardEntry,
   DifficultyId,
   GameScreen,
   HudSnapshot,
+  MusicBeatId,
   SaveData,
   SceneId,
   SuiNetworkId,
@@ -93,6 +104,11 @@ const INITIAL_HUD: HudSnapshot = {
   sceneToast: null,
   villainThreat: 0,
   yetiSource: 'procedural',
+  replayActive: false,
+  replayStuntLabel: null,
+  replayProgress: 0,
+  replayRecordedSec: 0,
+  replaySlowMo: false,
 };
 
 function CharacterAvatar({
@@ -157,6 +173,9 @@ export default function App() {
   const [suiBalanceFormatted, setSuiBalanceFormatted] = useState<string | null>(null);
   const [web3Busy, setWeb3Busy] = useState<string | null>(null);
   const [web3Status, setWeb3Status] = useState<string | null>(null);
+  const [dailyRuns, setDailyRuns] = useState<DailyLeaderboardEntry[]>([]);
+  const [dailyRunsLoading, setDailyRunsLoading] = useState(false);
+  const [dailyRunsError, setDailyRunsError] = useState<string | null>(null);
 
   const saveRef = useRef(save);
   saveRef.current = save;
@@ -181,8 +200,29 @@ export default function App() {
     });
   }, []);
 
+  const refreshDailyRuns = useCallback(async () => {
+    setDailyRunsLoading(true);
+    setDailyRunsError(null);
+    try {
+      const entries = await fetchDailyTopRuns(10);
+      setDailyRuns(entries);
+    } catch {
+      setDailyRunsError('Unable to load the 24-hour community leaderboard right now.');
+    } finally {
+      setDailyRunsLoading(false);
+    }
+  }, []);
+
   // Subscribe to Firebase Google Auth state across desktop & mobile sessions
   useEffect(() => {
+    void completeGoogleRedirectSignIn().then((redirectUser) => {
+      if (redirectUser) {
+        setWeb3Status(
+          `Signed in as ${redirectUser.displayName || redirectUser.email || 'Google Player'}. Progress synced.`,
+        );
+      }
+    });
+
     const unsubscribe = subscribeToAuth((user) => {
       setFirebaseUser(user);
       setAccount(user ? toGoogleAccountProfile(user) : null);
@@ -234,6 +274,8 @@ export default function App() {
       initial.selectedCharacter,
       initial.settings.difficulty,
       initial.settings.sfxEnabled,
+      initial.settings.musicEnabled,
+      initial.settings.musicBeat,
       {
         onHudUpdate: (snapshot) => {
           setHud(snapshot);
@@ -243,21 +285,41 @@ export default function App() {
           const isNewBest = result.score > prev.highScore;
           setLastRun({ ...result, isNewBest });
           setScreen('gameover');
-          updateSave((cur) => {
-            const nextLifetime = cur.lifetimeCoins + result.runCoins;
-            const nextUnlocked = new Set<CharacterId>(cur.unlockedCharacters);
-            for (const c of CHARACTERS) {
-              if (nextLifetime >= c.unlockCoins) nextUnlocked.add(c.id);
-            }
-            return {
-              ...cur,
-              lifetimeCoins: nextLifetime,
-              coinBalance: cur.coinBalance + result.runCoins,
-              unlockedCharacters: Array.from(nextUnlocked),
-              highScore: Math.max(cur.highScore, result.score),
-              bestDistance: Math.max(cur.bestDistance, result.distance),
-            };
-          });
+
+          const nextLifetime = prev.lifetimeCoins + result.runCoins;
+          const nextUnlocked = new Set<CharacterId>(prev.unlockedCharacters);
+          for (const c of CHARACTERS) {
+            if (nextLifetime >= c.unlockCoins) nextUnlocked.add(c.id);
+          }
+          const nextSave: SaveData = {
+            ...prev,
+            lifetimeCoins: nextLifetime,
+            coinBalance: prev.coinBalance + result.runCoins,
+            unlockedCharacters: Array.from(nextUnlocked),
+            highScore: Math.max(prev.highScore, result.score),
+            bestDistance: Math.max(prev.bestDistance, result.distance),
+          };
+
+          updateSave(() => nextSave);
+
+          const user = firebaseUserRef.current;
+          if (user && result.score > 0) {
+            recordDailyRun(user, nextSave, {
+              score: result.score,
+              distance: result.distance,
+              runCoins: result.runCoins,
+              characterId: prev.selectedCharacter,
+              difficulty: prev.settings.difficulty,
+            })
+              .then(() => {
+                if (screenRef.current === 'web3') {
+                  void refreshDailyRuns();
+                }
+              })
+              .catch(() => {
+                // Keep gameplay uninterrupted if offline
+              });
+          }
         },
         onPauseRequest: () => {
           if (screenRef.current === 'playing') {
@@ -276,11 +338,19 @@ export default function App() {
 
     engineRef.current = engine;
 
+    const unlockOnGesture = () => {
+      engine.unlockAudio();
+    };
+    window.addEventListener('pointerdown', unlockOnGesture, { passive: true });
+    window.addEventListener('keydown', unlockOnGesture, { passive: true });
+
     return () => {
+      window.removeEventListener('pointerdown', unlockOnGesture);
+      window.removeEventListener('keydown', unlockOnGesture);
       engine.dispose();
       engineRef.current = null;
     };
-  }, [updateSave]);
+  }, [updateSave, refreshDailyRuns]);
 
   const handleStartGame = useCallback(() => {
     const engine = engineRef.current;
@@ -358,11 +428,12 @@ export default function App() {
     setConfirmReset(false);
     setWeb3Status(null);
     setScreen('web3');
+    void refreshDailyRuns();
     if (engine) {
       engine.audio.play('uiClick');
       engine.setScreen('web3');
     }
-  }, []);
+  }, [refreshDailyRuns]);
 
   const handleOpenSettings = useCallback(() => {
     const engine = engineRef.current;
@@ -469,26 +540,58 @@ export default function App() {
     [updateSave],
   );
 
-  // Google Sign-In & On-Demand Sui Rewards handlers
-  const handleSignInGoogle = useCallback(async () => {
+  // Google Sign-In & On-Demand Sui Rewards handlers (desktop & mobile popup + redirect fallback)
+  const handleSignInGoogle = useCallback(() => {
     setWeb3Busy('google_auth');
     setWeb3Status(null);
-    try {
-      const user = await signInWithGoogle();
-      setWeb3Status(`Signed in as ${user.displayName || user.email || 'Google Player'}. Progress synced.`);
-      engineRef.current?.audio.play('uiClick');
-    } catch (err) {
-      const code = (err as { code?: string })?.code ?? '';
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-        setWeb3Status('Google sign-in canceled. Tap "Sign in with Google" whenever you are ready.');
-      } else if (code === 'auth/popup-blocked') {
-        setWeb3Status('Pop-up was blocked by your browser. Please allow pop-ups and tap Sign in with Google again.');
-      } else {
-        setWeb3Status(err instanceof Error ? err.message : 'Unable to sign in with Google right now.');
-      }
-    } finally {
+    // Call signInWithGoogle synchronously inside the tap/click event stack so mobile Safari/Chrome
+    // preserves the user-activation token for Google OAuth popups.
+    signInWithGoogle()
+      .then(({ user, redirected }) => {
+        if (redirected) {
+          setWeb3Status('Redirecting to Google Sign-In...');
+          return;
+        }
+        if (user) {
+          setWeb3Status(
+            `Signed in as ${user.displayName || user.email || 'Google Player'}. Progress synced.`,
+          );
+          engineRef.current?.audio.play('uiClick');
+        }
+      })
+      .catch((err) => {
+        const code = (err as { code?: string })?.code ?? '';
+        const inIframe = isInEmbeddedIframe();
+        if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+          setWeb3Status(
+            inIframe
+              ? 'Sign-in window closed. On phones, open the app directly in Chrome or Safari if pop-ups close automatically.'
+              : 'Google sign-in canceled. Tap "Sign in with Google" or use full-page sign-in below.',
+          );
+        } else if (code === 'auth/popup-blocked') {
+          setWeb3Status(
+            inIframe
+              ? 'Your mobile browser blocked the pop-up inside this preview. Open the link directly in Safari/Chrome or allow pop-ups.'
+              : 'Pop-up was blocked by your mobile browser. Tap "Use Full-Page Sign-In" to continue.',
+          );
+        } else if (code === 'auth/unauthorized-domain') {
+          setWeb3Status('This preview URL is not yet authorized for Google Sign-In in Firebase Auth.');
+        } else {
+          setWeb3Status(err instanceof Error ? err.message : 'Unable to sign in with Google right now.');
+        }
+      })
+      .finally(() => {
+        setWeb3Busy(null);
+      });
+  }, []);
+
+  const handleSignInGoogleRedirect = useCallback(() => {
+    setWeb3Busy('google_auth');
+    setWeb3Status('Opening Google Sign-In...');
+    signInWithGoogleRedirect().catch((err) => {
+      setWeb3Status(err instanceof Error ? err.message : 'Unable to start Google Sign-In.');
       setWeb3Busy(null);
-    }
+    });
   }, []);
 
   const handleSignOutGoogle = useCallback(async () => {
@@ -617,6 +720,14 @@ export default function App() {
         writeSaveData(nextSave);
         setSave(nextSave);
         await recordCloudReceipt(user, nextSave, receipt, suiId);
+        await recordDailyRun(user, nextSave, {
+          score: cur.highScore,
+          distance: cur.bestDistance,
+          runCoins: 0,
+          characterId: cur.selectedCharacter,
+          difficulty: cur.settings.difficulty,
+        }).catch(() => {});
+        void refreshDailyRuns();
         setWeb3Status(
           `Verified high score ${cur.highScore.toLocaleString()} for ${formatSuiIdentifier(suiId)}.`,
         );
@@ -627,7 +738,7 @@ export default function App() {
         setWeb3Busy(null);
       }
     },
-    [],
+    [refreshDailyRuns],
   );
 
   const handleMintYetiNft = useCallback(
@@ -740,6 +851,31 @@ export default function App() {
     }));
   }, [updateSave]);
 
+  const handleToggleMusic = useCallback(() => {
+    const nextVal = !saveRef.current.settings.musicEnabled;
+    engineRef.current?.setMusicEnabled(nextVal);
+    engineRef.current?.audio.play('uiClick');
+    updateSave((prev) => ({
+      ...prev,
+      settings: { ...prev.settings, musicEnabled: nextVal },
+    }));
+  }, [updateSave]);
+
+  const handleSelectMusicBeat = useCallback(
+    (beat: MusicBeatId) => {
+      engineRef.current?.audio.play('uiClick');
+      engineRef.current?.setMusicBeat(beat);
+      if (!saveRef.current.settings.musicEnabled) {
+        engineRef.current?.setMusicEnabled(true);
+      }
+      updateSave((prev) => ({
+        ...prev,
+        settings: { ...prev.settings, musicEnabled: true, musicBeat: beat },
+      }));
+    },
+    [updateSave],
+  );
+
   const handleToggleHints = useCallback(() => {
     engineRef.current?.audio.play('uiClick');
     updateSave((prev) => ({
@@ -759,6 +895,8 @@ export default function App() {
     engineRef.current?.previewScene(homeWorld);
     engineRef.current?.setDifficulty(fresh.settings.difficulty);
     engineRef.current?.setSfxEnabled(fresh.settings.sfxEnabled);
+    engineRef.current?.setMusicEnabled(fresh.settings.musicEnabled);
+    engineRef.current?.setMusicBeat(fresh.settings.musicBeat);
     engineRef.current?.audio.play('uiClick');
   }, []);
 
@@ -864,6 +1002,30 @@ export default function App() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {/* Quick Instrumental Beat Toggle */}
+              <button
+                type="button"
+                onClick={handleToggleMusic}
+                aria-label={save.settings.musicEnabled ? 'Mute background beats' : 'Play background beats'}
+                title={
+                  save.settings.musicEnabled
+                    ? `Beat: ${getMusicBeatLabel(save.settings.musicBeat, previewSceneId)}`
+                    : 'Beats Muted'
+                }
+                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 touch-manipulation min-h-[36px] ${
+                  save.settings.musicEnabled
+                    ? 'border-emerald-400/45 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25'
+                    : 'border-white/12 bg-[#0c1220]/90 text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                }`}
+              >
+                <Music className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">
+                  {save.settings.musicEnabled
+                    ? getMusicBeatLabel(save.settings.musicBeat, previewSceneId)
+                    : 'Beats Off'}
+                </span>
+              </button>
+
               {/* Google Account Sign-In / Account Trigger (works seamlessly on desktop & mobile) */}
               {account ? (
                 <button
@@ -888,7 +1050,7 @@ export default function App() {
                   type="button"
                   disabled={!authReady || web3Busy !== null}
                   onClick={handleSignInGoogle}
-                  className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100 active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0 touch-manipulation min-h-[36px]"
                 >
                   <User className="h-3.5 w-3.5 text-sky-600" />
                   {web3Busy === 'google_auth' ? 'Signing in...' : 'Sign in with Google'}
@@ -918,6 +1080,32 @@ export default function App() {
               </div>
             </div>
           </header>
+
+          {/* Visible Google Auth Status / Mobile Fallback Banner on Menu Screen */}
+          {web3Status && (
+            <div className="pointer-events-auto mx-auto mt-2 flex w-full max-w-2xl flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-400/35 bg-[#0c1220]/95 px-3.5 py-2.5 text-xs text-sky-100 shadow-lg">
+              <span className="flex-1 min-w-[200px]">{web3Status}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                {!account && !isInEmbeddedIframe() && (
+                  <button
+                    type="button"
+                    disabled={web3Busy !== null}
+                    onClick={handleSignInGoogleRedirect}
+                    className="rounded-lg bg-sky-400 px-2.5 py-1.5 text-[11px] font-bold text-slate-950 hover:bg-sky-300 cursor-pointer whitespace-nowrap touch-manipulation"
+                  >
+                    Use Full-Page Sign-In
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setWeb3Status(null)}
+                  className="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-white/10 cursor-pointer whitespace-nowrap"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Bottom Unified Action Dock */}
           <footer className="pointer-events-auto mx-auto w-full max-w-2xl">
@@ -1137,8 +1325,13 @@ export default function App() {
           suiBalanceFormatted={suiBalanceFormatted}
           busyAction={web3Busy}
           statusMessage={web3Status}
+          dailyRuns={dailyRuns}
+          dailyRunsLoading={dailyRunsLoading}
+          dailyRunsError={dailyRunsError}
+          onRefreshDailyRuns={refreshDailyRuns}
           onClose={handleGoMenu}
           onSignInGoogle={handleSignInGoogle}
+          onSignInGoogleRedirect={handleSignInGoogleRedirect}
           onSignOutGoogle={handleSignOutGoogle}
           onSwitchNetwork={handleSwitchNetwork}
           onSaveSuiIdentifier={handleSaveSuiIdentifier}
@@ -1152,7 +1345,7 @@ export default function App() {
       {/* ==================== SETTINGS SCREEN ==================== */}
       {screen === 'settings' && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#060a14]/75 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-white/14 bg-[#0d1424] p-6 shadow-2xl">
+          <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-white/14 bg-[#0d1424] p-6 shadow-2xl">
             <div className="flex items-center justify-between pb-4 border-b border-white/10">
               <h2 className="font-[var(--font-display)] text-xl font-bold text-white">Settings</h2>
               <button
@@ -1166,6 +1359,65 @@ export default function App() {
             </div>
 
             <div className="mt-5 space-y-5">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-semibold text-white">Background Beats</div>
+                  <div className="text-xs text-slate-400">
+                    Instrumental beats matched to each world
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleMusic}
+                  className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                    save.settings.musicEnabled
+                      ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200'
+                      : 'border-white/12 bg-white/5 text-slate-400'
+                  }`}
+                >
+                  <Music className="h-4 w-4" />
+                  {save.settings.musicEnabled ? 'On' : 'Off'}
+                </button>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-white">Beat Style</div>
+                  <span className="text-[11px] font-medium text-emerald-300">
+                    {save.settings.musicEnabled
+                      ? `Now Playing: ${getMusicBeatLabel(save.settings.musicBeat, previewSceneId)}`
+                      : 'Muted'}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  {MUSIC_BEATS.map((beat) => {
+                    const active = save.settings.musicBeat === beat.id;
+                    return (
+                      <button
+                        key={beat.id}
+                        type="button"
+                        onClick={() => handleSelectMusicBeat(beat.id)}
+                        className={`rounded-xl border px-3 py-2 text-left transition-colors cursor-pointer ${
+                          active
+                            ? 'border-emerald-400/60 bg-emerald-500/18 text-white'
+                            : 'border-white/10 bg-[#070b15] text-slate-300 hover:border-white/20 hover:text-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs font-bold truncate">{beat.name}</span>
+                          <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                            {beat.bpmLabel}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-slate-400 truncate">
+                          {beat.genre}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-sm font-semibold text-white">Sound Effects</div>
@@ -1279,8 +1531,67 @@ export default function App() {
         </div>
       )}
 
+      {/* ==================== 3D PERFECT STUNT REPLAY OVERLAY ==================== */}
+      {screen === 'playing' && hud.replayActive && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex flex-col justify-between">
+          {/* Top Cinema Letterbox Strip */}
+          <div className="pointer-events-auto flex items-center justify-between gap-4 border-b border-white/10 bg-[#060a14]/92 px-4 sm:px-6 py-2.5">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 min-w-0">
+              <span className="font-[var(--font-display)] text-sm font-extrabold tracking-wide text-amber-300 whitespace-nowrap shrink-0">
+                Perfect Stunt Replay
+              </span>
+              {hud.replayStuntLabel && (
+                <>
+                  <span aria-hidden="true" className="text-slate-500">·</span>
+                  <span className="text-sm font-semibold text-white truncate">
+                    {hud.replayStuntLabel}
+                  </span>
+                </>
+              )}
+              <span aria-hidden="true" className="text-slate-500 hidden sm:inline">·</span>
+              <span className="hidden sm:inline text-xs font-mono text-slate-300 tabular-nums whitespace-nowrap shrink-0">
+                Last {hud.replayRecordedSec.toFixed(1)}s{hud.replaySlowMo ? ' · Slow-Mo' : ''}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => engineRef.current?.skipReplay()}
+              className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/8 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <FastForward className="h-3.5 w-3.5 text-amber-300" />
+              Skip
+            </button>
+          </div>
+
+          {/* Bottom Cinema Letterbox Strip + Replay Timeline Scrubber */}
+          <div className="border-t border-white/10 bg-[#060a14]/92 px-4 sm:px-6 py-2.5">
+            <div className="mx-auto max-w-2xl">
+              <div className="flex items-center justify-between text-[11px] font-mono text-slate-300 tabular-nums mb-1.5">
+                <span>
+                  {hud.replaySlowMo ? 'Slow-Motion Angle' : '3D Action Camera'}
+                </span>
+                <span>
+                  {hud.replayProgress > 0.85
+                    ? 'Resuming run...'
+                    : `${(hud.replayProgress * hud.replayRecordedSec).toFixed(1)}s / ${hud.replayRecordedSec.toFixed(1)}s`}
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/12">
+                <div
+                  className={`h-full origin-left transition-colors ${
+                    hud.replaySlowMo ? 'bg-amber-400' : 'bg-sky-400'
+                  }`}
+                  style={{ transform: `scaleX(${Math.max(0.02, hud.replayProgress)})` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ==================== IN-GAME HUD ==================== */}
-      {(screen === 'playing' || screen === 'paused') && (
+      {(screen === 'playing' || screen === 'paused') && !hud.replayActive && (
         <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-3 sm:p-5">
           {/* Top HUD Row */}
           <div className="flex items-start justify-between gap-3">
@@ -1343,6 +1654,24 @@ export default function App() {
                   />
                 )}
               </div>
+
+              <button
+                type="button"
+                onClick={handleToggleMusic}
+                aria-label={save.settings.musicEnabled ? 'Mute background beats' : 'Play background beats'}
+                title={
+                  save.settings.musicEnabled
+                    ? `Beat: ${getMusicBeatLabel(save.settings.musicBeat, hud.sceneId)}`
+                    : 'Beats Muted'
+                }
+                className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors cursor-pointer ${
+                  save.settings.musicEnabled
+                    ? 'border-emerald-400/45 bg-[#0b101d]/88 text-emerald-300 hover:bg-emerald-500/15'
+                    : 'border-white/12 bg-[#0b101d]/88 text-slate-500 hover:text-slate-300 hover:bg-white/10'
+                }`}
+              >
+                <Music className="h-4 w-4" />
+              </button>
 
               <button
                 type="button"

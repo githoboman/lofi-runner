@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { SEGMENT_COUNT, SEGMENT_LENGTH } from './config';
+import type { InfernoAnimeController } from './infernoAnime';
 
 const _dummy = new THREE.Object3D();
 const _color = new THREE.Color();
@@ -10,6 +11,10 @@ const _pos = new THREE.Vector3();
 const _scale = new THREE.Vector3(1, 1, 1);
 const _pivotPos = new THREE.Vector3();
 const _localPos = new THREE.Vector3();
+const _emberCoolColor = new THREE.Color(0x9a3412);
+const _emberHotColor = new THREE.Color(0xfbbf24);
+const _coreCoolColor = new THREE.Color(0xc2410c);
+const _coreHotColor = new THREE.Color(0xfde047);
 
 /**
  * Reusable zero-GC object pool handle for world environment segments.
@@ -55,14 +60,21 @@ interface PendulumSlot {
   amp: number;
 }
 
+interface BrazierSlot {
+  x: number;
+  y: number;
+  z: number;
+}
+
 /**
  * Pooled InstancedMesh system for World 2 (Ember Caldera): Lava Temple Ruins + Swinging Iron Chains.
  * Replaces ~189 individual chain/rune/cage Mesh draw calls with 13 pooled InstancedMesh draw calls
- * across all recycled segments, with zero-GC animated pendulum swing physics.
+ * across all recycled segments, driven by anime.js choreography for braziers, ember runes & pendulums.
  */
 export function createLavaTemplePool(
   totalLength: number,
   wrapFrontZ: number,
+  animeCtrl?: InfernoAnimeController,
 ): PooledWorldSystem {
   const group = new THREE.Group();
   const geometries: THREE.BufferGeometry[] = [];
@@ -212,6 +224,7 @@ export function createLavaTemplePool(
   pendulumCores.frustumCulled = false;
 
   const pendulums: PendulumSlot[] = [];
+  const braziers: BrazierSlot[] = [];
   const templeShades = [0x331f1c, 0x422620, 0x2b1a19, 0x4a2a21];
 
   let pIdx = 0;
@@ -290,6 +303,7 @@ export function createLavaTemplePool(
         _dummy.position.set(side * 6.2, 2.75, z);
         _dummy.updateMatrix();
         flameTops.setMatrixAt(pIdx, _dummy.matrix);
+        braziers.push({ x: side * 6.2, y: 2.75, z });
 
         _dummy.position.set(side * 38, 8.8 + (k % 2) * 5, z);
         _dummy.rotation.set(0, seg + k, 0);
@@ -307,12 +321,14 @@ export function createLavaTemplePool(
     plinths,
     lintels,
     brazierBowls,
-    flameTops,
     crags,
     spanChains,
     flankChains,
     runeStrips,
   ];
+  flameTops.frustumCulled = false;
+  flameTops.instanceMatrix.needsUpdate = true;
+  group.add(flameTops);
   for (const im of allStatic) {
     im.frustumCulled = false;
     im.instanceMatrix.needsUpdate = true;
@@ -327,9 +343,37 @@ export function createLavaTemplePool(
   const _linkQuat = new THREE.Quaternion();
   const _rot90Y = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
 
+  const flameMat = flameTops.material as THREE.MeshStandardMaterial;
+
+  const updateBraziers = (dz: number) => {
+    const slots = animeCtrl?.brazierSlots;
+    const slotCount = slots ? slots.length : 0;
+    for (let i = 0; i < braziers.length; i++) {
+      const b = braziers[i];
+      b.z += dz;
+      if (b.z > wrapFrontZ) {
+        b.z -= totalLength;
+      }
+      const anim = slotCount > 0 ? slots![i % slotCount] : null;
+      const sy = anim ? anim.scaleY : 1;
+      const sxz = anim ? anim.scaleXZ : 1;
+      _pos.set(b.x, b.y + (sy - 1) * 0.92, b.z);
+      _euler.set(anim ? anim.tiltX : 0, 0, anim ? anim.tiltZ : 0);
+      _quat.setFromEuler(_euler);
+      _scale.set(sxz, sy, sxz);
+      _mat4.compose(_pos, _quat, _scale);
+      flameTops.setMatrixAt(i, _mat4);
+    }
+    _scale.set(1, 1, 1);
+    flameTops.instanceMatrix.needsUpdate = true;
+  };
+
   const updatePendulums = (dz: number, elapsed: number) => {
     let linkIdx = 0;
     let cageIdx = 0;
+    const windGust = animeCtrl ? animeCtrl.state.pendulumWindGust : 0;
+    const swingBoost = animeCtrl ? animeCtrl.state.pendulumSwingBoost : 1;
+    const cageHeatScale = animeCtrl ? animeCtrl.state.cageHeatScale : 1;
 
     for (let i = 0; i < pendulums.length; i++) {
       const p = pendulums[i];
@@ -338,12 +382,13 @@ export function createLavaTemplePool(
         p.z -= totalLength;
       }
 
-      const rotZ = Math.sin(elapsed * p.freq + p.phase) * p.amp;
-      const rotX = Math.cos(elapsed * p.freq * 0.72 + p.phase) * (p.amp * 0.35);
+      const rotZ = Math.sin(elapsed * p.freq + p.phase) * p.amp * swingBoost + windGust;
+      const rotX = Math.cos(elapsed * p.freq * 0.72 + p.phase) * (p.amp * 0.35 * swingBoost);
       _euler.set(rotX, 0, rotZ);
       _quat.setFromEuler(_euler);
       _pivotPos.set(p.x, p.y, p.z);
 
+      _scale.set(1, 1, 1);
       for (let ln = 0; ln < LINKS_PER_PENDULUM; ln++) {
         _localPos.set(0, -0.35 - ln * 0.42, 0).applyQuaternion(_quat).add(_pivotPos);
         if (ln % 2 === 0) {
@@ -358,8 +403,12 @@ export function createLavaTemplePool(
       _localPos.set(0, cageLocalY, 0).applyQuaternion(_quat).add(_pivotPos);
       _mat4.compose(_localPos, _quat, _scale);
       pendulumCages.setMatrixAt(cageIdx++, _mat4);
+
+      _scale.setScalar(cageHeatScale);
+      _mat4.compose(_localPos, _quat, _scale);
       pendulumCores.setMatrixAt(i, _mat4);
 
+      _scale.set(1, 1, 1);
       _linkQuat.copy(_quat).multiply(_rot90Y);
       _mat4.compose(_localPos, _linkQuat, _scale);
       pendulumCages.setMatrixAt(cageIdx++, _mat4);
@@ -370,7 +419,8 @@ export function createLavaTemplePool(
     pendulumCores.instanceMatrix.needsUpdate = true;
   };
 
-  // Initialize pendulum matrices on frame 0
+  // Initialize brazier & pendulum matrices on frame 0
+  updateBraziers(0);
   updatePendulums(0, 0);
 
   return {
@@ -380,6 +430,14 @@ export function createLavaTemplePool(
       for (let i = 0; i < staticInstanced.length; i++) {
         scrollInstancedZ(staticInstanced[i], dz, wrapFrontZ, totalLength);
       }
+      if (animeCtrl) {
+        const pulse = animeCtrl.state.emberPulse;
+        runeGlowMat.color.lerpColors(_emberCoolColor, _emberHotColor, pulse);
+        emberEdgeMat.color.lerpColors(_emberCoolColor, _emberHotColor, pulse * 0.85);
+        emberCoreMat.color.lerpColors(_coreCoolColor, _coreHotColor, pulse);
+        flameMat.emissiveIntensity = 0.72 + pulse * 0.95;
+      }
+      updateBraziers(dz);
       updatePendulums(dz, elapsed);
     },
     dispose: () => {
